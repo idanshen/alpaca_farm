@@ -22,6 +22,7 @@ import einops
 import torch
 import tqdm
 import transformers
+from peft import PeftModel
 
 from .. import common, constants, distributed_utils, logging, torch_ops, utils
 
@@ -44,6 +45,8 @@ def load_model_and_tokenizer_for_inference(
     model_kwargs: Optional[dict] = None,
     tokenizer_kwargs: Optional[dict] = None,
     resize_token_embeddings_if_mismatch=True,
+    load_in_4_bits=False,
+    checkpoint_dir: Optional[str] = None,
 ) -> Tuple[transformers.PreTrainedModel, transformers.PreTrainedTokenizer]:
     """Load huggingface model and tokenizer from path or with name for inference.
 
@@ -72,30 +75,32 @@ def load_model_and_tokenizer_for_inference(
         default_model_kwargs.update(model_kwargs)  # Make possible overriding default_model_kwargs.
         model_kwargs = default_model_kwargs
 
-    default_tokenizer_kwargs = dict(padding_side="left", use_fast=True, cache_dir=cache_dir)
+    default_tokenizer_kwargs = dict(padding_side="left", use_fast=False, cache_dir=cache_dir)
     if tokenizer_kwargs is None:
         tokenizer_kwargs = default_tokenizer_kwargs
     else:
         default_tokenizer_kwargs.update(tokenizer_kwargs)
         tokenizer_kwargs = default_tokenizer_kwargs
 
-    model = model_cls.from_pretrained(model_name_or_path, **model_kwargs).eval()
+    if load_in_4_bits:
+        assert checkpoint_dir is not None, "checkpoint_dir (path to lora weights) must be specified when load_in_4_bits is True"
+        model = common.get_accelerate_model(model_name_or_path, checkpoint_dir=checkpoint_dir, flash_attn=False, **model_kwargs).eval()
+        common.let_model_save_mem_when_zero_grad(model)
+    else:
+        model = model_cls.from_pretrained(model_name_or_path, **model_kwargs).eval()
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_name_or_path, **tokenizer_kwargs)
+    # Collect special tokens. Only add if non-existent.
+    special_tokens_dict = dict(additional_special_tokens=[])
     if tokenizer.pad_token is None:
-        # base llama does not come with a pad token, possible for other pretrained models as well
-        tokenizer.add_special_tokens({"pad_token": constants.DEFAULT_PAD_TOKEN})
+        special_tokens_dict["pad_token"] = constants.DEFAULT_PAD_TOKEN
+    if tokenizer.eos_token is None:
+        special_tokens_dict["eos_token"] = constants.DEFAULT_EOS_TOKEN
+    if tokenizer.bos_token is None:
+        special_tokens_dict["bos_token"] = constants.DEFAULT_BOS_TOKEN
+    if tokenizer.unk_token is None:
+        special_tokens_dict["unk_token"] = constants.DEFAULT_UNK_TOKEN
+    utils.stable_resize_token_embeddings_and_tokenizer(model, tokenizer, special_tokens_dict, checkpoint_dir=checkpoint_dir)
 
-    if isinstance(model, (transformers.OPTForCausalLM, transformers.LlamaForCausalLM)):
-        input_embedding_size = model.get_input_embeddings().weight.size(0)
-        num_tokens = len(tokenizer)
-        if input_embedding_size != num_tokens and resize_token_embeddings_if_mismatch:
-            logger.warning(
-                f"Model embedding size {input_embedding_size} is not equal to vocab size {num_tokens}. "
-                f"Shrinking/growing embedding size. "
-                "This is okay if your previous embeddings were inflated to a multiple of 64 for faster computation. "
-                "But generally, be cautious! This may cause unexpected behavior!!!"
-            )
-            utils.stable_resize_token_embeddings(model, num_tokens)
     return model, tokenizer
 
 
@@ -292,6 +297,9 @@ def decode_prompts_with_huggingface(
     max_instances=sys.maxsize,
     pad_to_length=2048,  # Force pad to this length for distributed communication to work.
     tf32=True,
+    load_in_4_bits: bool = False,
+    checkpoint_dir: Optional[str] = None,
+    model_and_tokenizer: Optional[Tuple] = None,
     force_multisample_format: bool = False,
     seed: Optional[int] = None,
     communication_num_chunks: int = 1,
@@ -321,11 +329,16 @@ def decode_prompts_with_huggingface(
         A list of string responses, if `num_return_sequences` is 1 and not `force_multisample_format`;
         otherwise, a list of lists of string responses.
     """
-    model, tokenizer = load_model_and_tokenizer_for_inference(
-        model_name_or_path=model_name_or_path,
-        cache_dir=cache_dir,
-        model_kwargs=dict(torch_dtype=utils.convert_str_dtype_to_torch_dtype(mixed_precision)),
-    )
+    if model_and_tokenizer is not None:
+        model, tokenizer = model_and_tokenizer
+    else:
+        model, tokenizer = load_model_and_tokenizer_for_inference(
+            model_name_or_path=model_name_or_path,
+            cache_dir=cache_dir,
+            model_kwargs=dict(torch_dtype=utils.convert_str_dtype_to_torch_dtype(mixed_precision)),
+            load_in_4_bits=load_in_4_bits,
+            checkpoint_dir=checkpoint_dir,
+        )
     return decode_prompts_with_huggingface_given_model(
         model=model,
         tokenizer=tokenizer,

@@ -14,7 +14,7 @@
 
 import pathlib
 import sys
-from typing import Dict, Optional, Sequence, Union
+from typing import Dict, Optional, Sequence, Union, Tuple
 
 import datasets
 import fire
@@ -41,6 +41,9 @@ def run_decode(
     num_return_sequences=4,
     mixed_precision=None,
     tf32=False,
+    load_in_4_bits=False,
+    checkpoint_dir: Optional[str] = None,
+    model_and_tokenizer: Optional[Tuple] = None,
     seed: Optional[int] = None,
 ):
     """Decode samples from the policy language model.
@@ -82,6 +85,9 @@ def run_decode(
         per_device_batch_size=per_device_batch_size,
         mixed_precision=mixed_precision,
         tf32=tf32,
+        load_in_4_bits=load_in_4_bits,
+        checkpoint_dir=checkpoint_dir,
+        model_and_tokenizer=model_and_tokenizer,
         seed=seed,
     )
 

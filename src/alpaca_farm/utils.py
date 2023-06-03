@@ -28,6 +28,7 @@ from typing import Callable, Optional, Sequence, Union
 import numpy as np
 import torch
 import transformers
+from peft import PeftModel
 from torch.utils.data import DataLoader
 
 from . import logging
@@ -122,6 +123,7 @@ def stable_resize_token_embeddings_and_tokenizer(
     model: transformers.PreTrainedModel,
     tokenizer: transformers.PreTrainedTokenizer,
     special_tokens_dict: dict,
+    checkpoint_dir: str = None,
 ):
     """Resize tokenizer and embedding together.
 
@@ -129,6 +131,14 @@ def stable_resize_token_embeddings_and_tokenizer(
     """
     tokenizer.add_special_tokens(special_tokens_dict)
     stable_resize_token_embeddings(model, len(tokenizer))
+    if isinstance(model, PeftModel) and checkpoint_dir is not None:
+        print('Loading embeddings from checkpoint.')
+        model.get_input_embeddings().weight = torch.load(
+            os.path.join(checkpoint_dir, "input_embeddings.pt")
+        )
+        model.get_output_embeddings().weight = torch.load(
+            os.path.join(checkpoint_dir, "output_embeddings.pt")
+        )
 
 
 def stable_resize_token_embeddings(
@@ -154,6 +164,7 @@ def stable_resize_token_embeddings(
         input_embeddings[-num_new_tokens:] = input_embeddings_avg
         output_embeddings[-num_new_tokens:] = output_embeddings_avg
 
+    return num_new_tokens > 0
 
 def convert_str_dtype_to_torch_dtype(str_dtype: Optional[str]):
     if str_dtype in ("single", "float32", "float", "fp32", None):

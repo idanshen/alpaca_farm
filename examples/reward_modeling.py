@@ -20,7 +20,7 @@ from typing import List, Literal
 
 import transformers
 
-from alpaca_farm import common, constants, data_utils, logging
+from alpaca_farm import common, constants, data_utils, logging, utils
 from alpaca_farm.models import reward_model
 from alpaca_farm.reward_modeling_trainer import Trainer, compute_reward_modeling_metrics
 
@@ -33,7 +33,10 @@ class ModelArguments:
         default=None,
         metadata={"help": "Name of or path to the base generative LM."},
     )
-
+    checkpoint_dir: str = field(
+            default=None,
+            metadata={"help": "Path to the lora weights."},
+        )
 
 @dataclass
 class DataArguments:
@@ -127,13 +130,15 @@ def main():
         low_cpu_mem_usage = True
 
     with ctx_mgr:
+        # config = transformers.PretrainedConfig.get_config_dict(model_args.model_name_or_path)
         config = reward_model.RewardConfig(backbone_model_name_or_path=model_args.model_name_or_path)
         model = reward_model.RewardModel(
             flash_attn=training_args.flash_attn,
-            fp16=training_args.fp16,
-            bf16=training_args.bf16,
-            low_cpu_mem_usage=low_cpu_mem_usage,
-            device_map=device_map,
+            # fp16=training_args.fp16,
+            # bf16=training_args.bf16,
+            # low_cpu_mem_usage=low_cpu_mem_usage,
+            # device_map=device_map,
+            checkpoint_dir=model_args.checkpoint_dir,
             config=config,
         )
         common.let_model_save_mem_when_zero_grad(model)
@@ -146,6 +151,19 @@ def main():
         use_fast=training_args.use_fast_tokenizer,
     )
     tokenizer.padding = training_args.padding
+
+    # Collect special tokens. Only add if non-existent.
+    special_tokens_dict = dict(additional_special_tokens=[])
+    if tokenizer.pad_token is None:
+        special_tokens_dict["pad_token"] = training_args.pad_token
+    if tokenizer.eos_token is None:
+        special_tokens_dict["eos_token"] = constants.DEFAULT_EOS_TOKEN
+    if tokenizer.bos_token is None:
+        special_tokens_dict["bos_token"] = constants.DEFAULT_BOS_TOKEN
+    if tokenizer.unk_token is None:
+        special_tokens_dict["unk_token"] = constants.DEFAULT_UNK_TOKEN
+    utils.stable_resize_token_embeddings_and_tokenizer(model, tokenizer, special_tokens_dict, checkpoint_dir=model_args.checkpoint_dir)
+
     data_module = data_utils.make_binary_reward_modeling_data_module(
         tokenizer=tokenizer,
         data_args=data_args,
@@ -166,7 +184,7 @@ def main():
     trainer.evaluate()
 
     trainer.save_state()
-    common.safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir)
+    common.safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir, model=model)
     logger.warning("hooray again! model saving worked.", main_process_only=True)
 
 

@@ -20,6 +20,15 @@ from typing import List, Literal
 
 import transformers
 from transformers import Trainer
+import sys
+import os
+
+from alpaca_farm.utils import jload, jdump
+from examples.best_of_n import run_decode
+
+current = os.path.dirname(os.path.realpath(__file__))
+parent = os.path.dirname(current)
+sys.path.append(parent)
 
 from alpaca_farm import common, constants, data_utils, logging, utils
 
@@ -105,16 +114,19 @@ def main():
         low_cpu_mem_usage = True
 
     with ctx_mgr:
-        model: transformers.PreTrainedModel = common.make_generative_lm(
+        # model: transformers.PreTrainedModel = common.make_generative_lm(
+        #     model_name_or_path=model_args.model_name_or_path,
+        #     flash_attn=training_args.flash_attn,
+        #     fp16=training_args.fp16,
+        #     bf16=training_args.bf16,
+        #     config=transformers.AutoConfig.from_pretrained(model_args.model_name_or_path),
+        #     cache_dir=training_args.cache_dir,
+        #     low_cpu_mem_usage=low_cpu_mem_usage,
+        #     device_map=device_map,
+        # )
+        model: transformers.PreTrainedModel = common.get_accelerate_model(
             model_name_or_path=model_args.model_name_or_path,
-            flash_attn=training_args.flash_attn,
-            fp16=training_args.fp16,
-            bf16=training_args.bf16,
-            config=transformers.AutoConfig.from_pretrained(model_args.model_name_or_path),
-            cache_dir=training_args.cache_dir,
-            low_cpu_mem_usage=low_cpu_mem_usage,
-            device_map=device_map,
-        )
+            flash_attn=training_args.flash_attn,)
         common.let_model_save_mem_when_zero_grad(model)
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
@@ -156,8 +168,25 @@ def main():
     logger.warning("hooray! training finished successfully! now on to model saving.", main_process_only=True)
 
     trainer.save_state()
-    common.safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir)
+    common.safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir, model=model)
     logger.warning("hooray again! model saving worked.", main_process_only=True)
+
+    # logger.warning("Start creating evaluation data.", main_process_only=True)
+    # model.eval()
+    # tokenizer = transformers.AutoTokenizer.from_pretrained(
+    #     model_args.model_name_or_path,
+    #     cache_dir=training_args.cache_dir,
+    #     model_max_length=training_args.model_max_length,
+    #     padding_side="left",
+    #     use_fast=training_args.use_fast_tokenizer,
+    # )
+    # tokenizer.padding = training_args.padding
+    # tokenizer.padding_side = "left"
+    #
+    # list_dict_data = run_decode(model_and_tokenizer=(model, tokenizer),
+    #            decoder_name_or_path="",
+    #            num_return_sequences=1, temperature=0.7, per_device_batch_size=12)
+    # jdump(list_dict_data, training_args.output_dir + "/output.json")
 
 
 if __name__ == "__main__":

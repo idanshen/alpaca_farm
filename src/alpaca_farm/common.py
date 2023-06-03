@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+from os.path import exists, join, isdir
 import re
 import time
 import types
@@ -30,8 +31,26 @@ from torch.distributed.fsdp import FullStateDictConfig
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp import StateDictType
 from transformers.trainer import WEIGHTS_NAME, is_deepspeed_zero3_enabled
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    set_seed,
+    Seq2SeqTrainer,
+    BitsAndBytesConfig
+)
+import bitsandbytes as bnb
+from peft import (
+    prepare_model_for_int8_training,
+    LoraConfig,
+    TaskType,
+    get_peft_model,
+    get_peft_model_state_dict,
+    PeftModel, PeftModelForCausalLM, LoraModel, prepare_model_for_kbit_training
+)
+from peft.tuners.lora import LoraLayer
 
 from . import constants, logging, utils
+from .models.reward_model import RewardModel
 from .types import AnyPath, AnyPathOrNone
 
 logger = logging.get_logger(__name__)
@@ -120,6 +139,115 @@ def make_generative_lm(
     return model_cls.from_pretrained(model_name_or_path, **kwargs)
 
 
+def get_accelerate_model(
+    model_name_or_path: str,
+    flash_attn: bool = False,
+    bits: int = 4,
+    bf16: bool = True,
+    max_memory_MB: int = 20000,
+    double_quant: bool = True,
+    gradient_checkpointing: bool = True,
+    lora_r: int = 64,
+    lora_alpha: int = 16,
+    lora_dropout: float = 0.05,
+    checkpoint_dir: Optional[str] = None,
+    **kwargs,):
+    assert not flash_attn, "currently flash attention is not supported (need to verify with 4bit training)"
+    assert bits in [4,8,16,32], f'bits must be in [4,8,16,32], got {bits}'
+
+    n_gpus = torch.cuda.device_count()
+    max_memory = f'{max_memory_MB}MB'
+    max_memory = {i: max_memory for i in range(n_gpus)}
+
+    print(f'loading base model {model_name_or_path}...')
+    compute_dtype = (torch.bfloat16 if bits != 32 and bf16 else (torch.float16 if bits != 32 else torch.float32))
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name_or_path,
+        load_in_4bit=bits == 4,
+        load_in_8bit=bits == 8,
+        device_map='auto',
+        max_memory=max_memory,
+        quantization_config=BitsAndBytesConfig(
+            load_in_4bit=bits == 4,
+            load_in_8bit=bits == 8,
+            llm_int8_threshold=6.0,
+            llm_int8_has_fp16_weight=False,
+            bnb_4bit_compute_dtype=compute_dtype,
+            bnb_4bit_use_double_quant=double_quant,
+            bnb_4bit_quant_type='nf4'  # by default, options are {'fp4', 'nf4'}
+        ),
+        torch_dtype=torch.bfloat16 if bf16 else torch.float32,
+        trust_remote_code=False,  # Set True to enable unpickling of arbitrary code in AutoModelForCausalLM#from_pretrained.
+    )
+    if compute_dtype == torch.float16 and bits == 4:
+        major, minor = torch.cuda.get_device_capability()
+        if major >= 8:
+            print('=' * 80)
+            print('Your GPU supports bfloat16, you can accelerate training with the argument --bf16')
+            print('=' * 80)
+
+    setattr(model, 'model_parallel', True)
+    setattr(model, 'is_parallelizable', True)
+    modules = find_all_linear_names(bits, model)
+
+    model.config.torch_dtype = torch.bfloat16 if bf16 else torch.float32
+
+    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=gradient_checkpointing)
+    if gradient_checkpointing:
+        model.gradient_checkpointing_enable()
+
+    config = LoraConfig(
+        r=lora_r,
+        lora_alpha=lora_alpha,
+        target_modules=modules,
+        lora_dropout=lora_dropout,
+        bias="none",
+        task_type=TaskType.CAUSAL_LM,
+    )
+    if checkpoint_dir is not None:
+        print("Loading adapters from checkpoint.")
+        model = PeftModel.from_pretrained(model, checkpoint_dir)
+        for name, p in model.named_parameters():
+            if 'lora' in name:
+                print(name, p.sum())
+    else:
+        print(f'adding LoRA modules...')
+        model = get_peft_model(model, config)
+
+    if gradient_checkpointing:
+        if hasattr(model, "enable_input_require_grads"):
+            model.enable_input_require_grads()
+        else:
+            def make_inputs_require_grad(module, input, output):
+                output.requires_grad_(True)
+            model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
+
+    for name, module in model.named_modules():
+        if isinstance(module, LoraLayer):
+            if bf16:
+                module = module.to(torch.bfloat16)
+        if 'norm' in name:
+            module = module.to(torch.float32)
+        if 'lm_head' in name or 'embed_tokens' in name:
+            if hasattr(module, 'weight'):
+                if bf16 and module.weight.dtype == torch.float32:
+                    module = module.to(torch.bfloat16)
+    return model
+
+
+def find_all_linear_names(bits, model):
+    cls = bnb.nn.Linear4bit if bits == 4 else (bnb.nn.Linear8bitLt if bits == 8 else torch.nn.Linear)
+    lora_module_names = set()
+    for name, module in model.named_modules():
+        if isinstance(module, cls):
+            names = name.split('.')
+            lora_module_names.add(names[0] if len(names) == 1 else names[-1])
+
+    if 'lm_head' in lora_module_names:  # needed for 16-bit
+        lora_module_names.remove('lm_head')
+    return list(lora_module_names)
+
+
 def let_model_save_mem_when_zero_grad(model: nn.Module):
     def new_zero_grad(self, set_to_none: bool = True) -> None:
         r"""Sets gradients of all model parameters to zero. See similar function
@@ -154,11 +282,27 @@ def let_model_save_mem_when_zero_grad(model: nn.Module):
     return model
 
 
+def save_peft_model(model: PeftModel, peft_model_path: str):
+    model.save_pretrained(peft_model_path)
+    # Saving input and output embedding
+    torch.save(model.get_input_embeddings().weight, os.path.join(peft_model_path, "input_embeddings.pt"))
+    torch.save(model.get_output_embeddings().weight, os.path.join(peft_model_path, "output_embeddings.pt"))
+
+
 def safe_save_model_for_hf_trainer(
-    trainer: transformers.Trainer, output_dir: str, give_rw_access=True, rank0_only=True
+    trainer: transformers.Trainer, output_dir: str, model, give_rw_access=True, rank0_only=True
 ):
     """Collects the state dict and dump to disk."""
     now = time.perf_counter()
+
+    if isinstance(model, PeftModel):
+        peft_model_path = os.path.join(output_dir, "adapter_model")
+        save_peft_model(model, peft_model_path)
+    elif isinstance(model, RewardModel):
+        peft_model_path = os.path.join(output_dir, "adapter_model")
+        save_peft_model(model.backbone_model, peft_model_path)
+        # Saving final layer
+        torch.save(model.reward_head, os.path.join(peft_model_path, "reward_head.pt"))
 
     if trainer.fsdp is not None:
         # NOTE(rtaori): technically should be rank0_only=True (otherwise duplicates model in RAM),
@@ -346,6 +490,11 @@ def get_model_name_with_model_name_or_path(model_name_or_path: AnyPath) -> str:
 
 
 def get_transformer_hidden_size(model: transformers.PreTrainedModel):
+    if isinstance(model, PeftModel):
+        if isinstance(model.base_model, LoraModel):
+            model = model.base_model.model
+        else:
+            model = model.base_model
     if isinstance(model, transformers.GPT2LMHeadModel):
         hidden_size_attr_name = "n_embd"
     elif isinstance(model, transformers.OPTForCausalLM):
