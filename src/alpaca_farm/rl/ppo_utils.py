@@ -100,7 +100,9 @@ class TrainingArguments(transformers.TrainingArguments):
     query_len: int = field(default=192)
     response_len: int = field(default=300)
     policy_model_name_or_path: str = field(default=None)
+    policy_model_checkpoint_dir: str = field(default=None)
     reward_model_name_or_path: str = field(default=None)
+    reward_model_checkpoint_dir: str = field(default=None)
     use_fast_tokenizer: bool = field(
         default=False,
         metadata={

@@ -48,6 +48,9 @@ class RewardModel(transformers.PreTrainedModel):
         reward_head = nn.Linear(hidden_size, 1)
         torch.nn.init.zeros_(reward_head.bias)
         self.reward_head = reward_head.to(next(self.backbone_model.parameters()).device)
+        if checkpoint_dir is not None:
+            print("load reward head from checkpoint")
+            self.reward_head = torch.load(checkpoint_dir + "/reward_head.pt")
 
     def forward(self, input_ids, attention_mask=None, return_dict=True, **kwargs):
         # We only compute the rewards and don't compute the logistic regression loss in this function so that it's

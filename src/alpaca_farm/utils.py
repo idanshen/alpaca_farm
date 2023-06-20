@@ -130,19 +130,11 @@ def stable_resize_token_embeddings_and_tokenizer(
     For new tokens, the embedding value is the average of all old embedding vectors.
     """
     tokenizer.add_special_tokens(special_tokens_dict)
-    stable_resize_token_embeddings(model, len(tokenizer))
-    if isinstance(model, PeftModel) and checkpoint_dir is not None:
-        print('Loading embeddings from checkpoint.')
-        model.get_input_embeddings().weight = torch.load(
-            os.path.join(checkpoint_dir, "input_embeddings.pt")
-        )
-        model.get_output_embeddings().weight = torch.load(
-            os.path.join(checkpoint_dir, "output_embeddings.pt")
-        )
+    stable_resize_token_embeddings(model, len(tokenizer), checkpoint_dir=checkpoint_dir)
 
 
 def stable_resize_token_embeddings(
-    model: transformers.PreTrainedModel, target_size: int
+    model: transformers.PreTrainedModel, target_size: int, checkpoint_dir: str = None,
 ):
     num_new_tokens = target_size - model.get_input_embeddings().weight.size(0)
     model.resize_token_embeddings(target_size)
@@ -163,6 +155,15 @@ def stable_resize_token_embeddings(
 
         input_embeddings[-num_new_tokens:] = input_embeddings_avg
         output_embeddings[-num_new_tokens:] = output_embeddings_avg
+
+    if isinstance(model, PeftModel) and checkpoint_dir is not None:
+        print('Loading embeddings from checkpoint.')
+        model.get_input_embeddings().weight = torch.load(
+            os.path.join(checkpoint_dir, "input_embeddings.pt")
+        )
+        model.get_output_embeddings().weight = torch.load(
+            os.path.join(checkpoint_dir, "output_embeddings.pt")
+        )
 
     return num_new_tokens > 0
 

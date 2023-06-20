@@ -404,26 +404,36 @@ def make_models(
     accelerator: accelerate.Accelerator,
 ) -> dict:
     def make_generative_policy():
-        base_model = common.make_generative_lm(
+        base_model = common.get_accelerate_model(
             model_name_or_path=args.policy_model_name_or_path,
-            flash_attn=args.flash_attn,
-            mixed_precision=accelerator.mixed_precision,
-            cache_dir=args.cache_dir,
-            low_cpu_mem_usage=True,
-            device_map={"": accelerator.device},
-        )
-        utils.stable_resize_token_embeddings(base_model, len(tokenizer))
+            checkpoint_dir=args.policy_model_checkpoint_dir,
+            flash_attn=args.flash_attn,)
+        # base_model = common.make_generative_lm(
+        #     model_name_or_path=args.policy_model_name_or_path,
+        #     flash_attn=args.flash_attn,
+        #     mixed_precision=accelerator.mixed_precision,
+        #     cache_dir=args.cache_dir,
+        #     low_cpu_mem_usage=True,
+        #     device_map={"": accelerator.device},
+        # )
+        utils.stable_resize_token_embeddings(base_model, len(tokenizer), checkpoint_dir=args.policy_model_checkpoint_dir)
         return base_model
 
     def make_reward_model():
-        return reward_model_module.RewardModel.from_pretrained(
-            args.reward_model_name_or_path,
-            flash_attn=args.flash_attn,
-            mixed_precision=accelerator.mixed_precision,
-            cache_dir=args.cache_dir,
-            low_cpu_mem_usage=True,
-            device_map={"": accelerator.device},
-        )
+        reward_model_config = reward_model_module.RewardConfig(backbone_model_name_or_path=args.reward_model_name_or_path)
+        base_reward_model = reward_model_module.RewardModel(flash_attn=args.flash_attn,
+            checkpoint_dir=args.reward_model_checkpoint_dir,
+            config=reward_model_config,)
+        utils.stable_resize_token_embeddings(base_reward_model.backbone_model, len(tokenizer), checkpoint_dir=args.reward_model_checkpoint_dir)
+        return base_reward_model
+        # return reward_model_module.RewardModel.from_pretrained(
+        #     args.reward_model_name_or_path,
+        #     flash_attn=args.flash_attn,
+        #     mixed_precision=accelerator.mixed_precision,
+        #     cache_dir=args.cache_dir,
+        #     low_cpu_mem_usage=True,
+        #     device_map={"": accelerator.device},
+        # )
 
     # Model construction below seems convoluted, but it's made to trade time for RAM efficiency.
     # For large models, object creation could be extremely RAM intensive.
