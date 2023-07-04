@@ -24,7 +24,6 @@ import sys
 import os
 
 from alpaca_farm.utils import jload, jdump
-from examples.best_of_n import run_decode
 
 current = os.path.dirname(os.path.realpath(__file__))
 parent = os.path.dirname(current)
@@ -91,6 +90,20 @@ class TrainingArguments(transformers.TrainingArguments):
             "Use fast tokenizer only if you can live with that."
         },
     )
+    transformer_cache_dir: str = field(
+        default=None,
+        metadata={
+            "help": "Path to a directory where transformers will cache the model. "
+            "If None, transformers will use the default cache directory."
+        },
+    )
+    four_bits: bool = field(default=True, metadata={"help": "If True, uses 4-bit quantization."})
+    bfloat16: bool = field(default=True, metadata={"help": "If True, uses bfloat16 quantization. If lora and four_bits are True, bfloat16 is used for the lora weights."})
+    use_lora: bool = field(default=True, metadata={"help": "If True, uses LoRA."})
+    lora_r: int = field(default=60, metadata={"help": "LoRA local rank parameter."})
+    lora_alpha: float = field(default=16, metadata={"help": "LoRA alpha parameter."})
+    lora_dropout: float = field(default=0.05, metadata={"help": "LoRA dropout parameter."})
+    gradient_checkpointing: bool = field(default=True, metadata={"help": "If True, uses gradient checkpointing. It will require less memory but will be slower."})
 
 
 def main():
@@ -100,32 +113,24 @@ def main():
 
     if training_args.deepspeed is not None:
         ctx_mgr = contextlib.nullcontext()
-        device_map = None
-        low_cpu_mem_usage = None
     elif training_args.initialize_model_on_cpu:
         ctx_mgr = contextlib.nullcontext()
-        device_map = None
-        low_cpu_mem_usage = True
     else:
         ctx_mgr = common.staggered_object_creation(
             local_rank=training_args.local_rank, world_size=training_args.world_size
         )
-        device_map = {"": training_args.device.index}
-        low_cpu_mem_usage = True
 
     with ctx_mgr:
-        # model: transformers.PreTrainedModel = common.make_generative_lm(
-        #     model_name_or_path=model_args.model_name_or_path,
-        #     flash_attn=training_args.flash_attn,
-        #     fp16=training_args.fp16,
-        #     bf16=training_args.bf16,
-        #     config=transformers.AutoConfig.from_pretrained(model_args.model_name_or_path),
-        #     cache_dir=training_args.cache_dir,
-        #     low_cpu_mem_usage=low_cpu_mem_usage,
-        #     device_map=device_map,
-        # )
         model: transformers.PreTrainedModel = common.get_accelerate_model(
             model_name_or_path=model_args.model_name_or_path,
+            transformer_cache_dir=training_args.transformer_cache_dir,
+            four_bits=training_args.four_bits,
+            bfloat16=training_args.bfloat16,
+            use_lora=training_args.use_lora,
+            lora_r=training_args.lora_r,
+            lora_alpha=training_args.lora_alpha,
+            lora_dropout=training_args.lora_dropout,
+            gradient_checkpointing=training_args.gradient_checkpointing,
             flash_attn=training_args.flash_attn,)
         common.let_model_save_mem_when_zero_grad(model)
 
@@ -170,23 +175,6 @@ def main():
     trainer.save_state()
     common.safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir, model=model)
     logger.warning("hooray again! model saving worked.", main_process_only=True)
-
-    # logger.warning("Start creating evaluation data.", main_process_only=True)
-    # model.eval()
-    # tokenizer = transformers.AutoTokenizer.from_pretrained(
-    #     model_args.model_name_or_path,
-    #     cache_dir=training_args.cache_dir,
-    #     model_max_length=training_args.model_max_length,
-    #     padding_side="left",
-    #     use_fast=training_args.use_fast_tokenizer,
-    # )
-    # tokenizer.padding = training_args.padding
-    # tokenizer.padding_side = "left"
-    #
-    # list_dict_data = run_decode(model_and_tokenizer=(model, tokenizer),
-    #            decoder_name_or_path="",
-    #            num_return_sequences=1, temperature=0.7, per_device_batch_size=12)
-    # jdump(list_dict_data, training_args.output_dir + "/output.json")
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ import os
 import transformers
 from accelerate import DistributedDataParallelKwargs
 
-from alpaca_farm import accelerate_patch, data_utils, logging
+from alpaca_farm import common, accelerate_patch, data_utils, logging
 from alpaca_farm.rl.ppo_trainer import PPOTrainer, make_models, make_tokenizer
 from alpaca_farm.rl.ppo_utils import DataArguments, TrainingArguments
 
@@ -28,6 +28,7 @@ def main():
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
     parser = transformers.HfArgumentParser((DataArguments, TrainingArguments))
+    print(parser.dataclass_types[1].reward_model_checkpoint_dir)
     data_args, training_args = parser.parse_args_into_dataclasses()
 
     accelerator = accelerate_patch.MyAccelerator(
@@ -61,6 +62,12 @@ def main():
         tokenizer=tokenizer,
     )
     trainer.train()
+
+    logger.warning("hooray! training finished successfully! now on to model saving.", main_process_only=True)
+
+    trainer.save_state()
+    common.safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir, model=trainer.policy)
+    logger.warning("hooray again! model saving worked.", main_process_only=True)
 
 
 if __name__ == "__main__":

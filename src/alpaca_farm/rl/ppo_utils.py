@@ -54,6 +54,20 @@ class TrainingArguments(transformers.TrainingArguments):
     truncate_after: Optional[int] = field(
         default=None, metadata={"help": "Truncate after this number of tokens. Prevents early truncation."}
     )
+    transformer_cache_dir: str = field(
+        default=None,
+        metadata={
+            "help": "Path to a directory where transformers will cache the model. "
+            "If None, transformers will use the default cache directory."
+        },
+    )
+    four_bits: bool = field(default=True, metadata={"help": "If True, uses 4-bit quantization."})
+    bfloat16: bool = field(default=True, metadata={"help": "If True, uses bfloat16 quantization. If lora and four_bits are True, bfloat16 is used for the lora weights."})
+    use_lora: bool = field(default=True, metadata={"help": "If True, uses LoRA."})
+    lora_r: int = field(default=60, metadata={"help": "LoRA local rank parameter."})
+    lora_alpha: float = field(default=16, metadata={"help": "LoRA alpha parameter."})
+    lora_dropout: float = field(default=0.05, metadata={"help": "LoRA dropout parameter."})
+    gradient_checkpointing: bool = field(default=True, metadata={"help": "If True, uses gradient checkpointing. It will require less memory but will be slower."})
     penalty_reward_value: float = field(
         default=-1.0,
         metadata={

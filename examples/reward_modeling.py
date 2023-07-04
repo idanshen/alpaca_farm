@@ -107,6 +107,21 @@ class TrainingArguments(transformers.TrainingArguments):
             "Use fast tokenizer only if you can live with that."
         },
     )
+    transformer_cache_dir: str = field(
+        default=None,
+        metadata={
+            "help": "Path to a directory where transformers will cache the model. "
+            "If None, transformers will use the default cache directory."
+        },
+    )
+    four_bits: bool = field(default=True, metadata={"help": "If True, uses 4-bit quantization."})
+    bfloat16: bool = field(default=True, metadata={"help": "If True, uses bfloat16 quantization. If lora and four_bits are True, bfloat16 is used for the lora weights."})
+    use_lora: bool = field(default=True, metadata={"help": "If True, uses LoRA."})
+    lora_r: int = field(default=60, metadata={"help": "LoRA local rank parameter."})
+    lora_alpha: float = field(default=16, metadata={"help": "LoRA alpha parameter."})
+    lora_dropout: float = field(default=0.05, metadata={"help": "LoRA dropout parameter."})
+    gradient_checkpointing: bool = field(default=True, metadata={"help": "If True, uses gradient checkpointing. It will require less memory but will be slower."})
+    pretrained_lora_weights: str = field(default=None, metadata={"help": "Path to pretrained LoRA weights."})
 
 
 def main():
@@ -116,31 +131,27 @@ def main():
 
     if training_args.deepspeed is not None:
         ctx_mgr = contextlib.nullcontext()
-        device_map = None
-        low_cpu_mem_usage = None
     elif training_args.initialize_model_on_cpu:
         ctx_mgr = contextlib.nullcontext()
-        device_map = None
-        low_cpu_mem_usage = True
     else:
         ctx_mgr = common.staggered_object_creation(
             local_rank=training_args.local_rank, world_size=training_args.world_size
         )
-        device_map = {"": training_args.device.index}
-        low_cpu_mem_usage = True
 
     with ctx_mgr:
         # config = transformers.PretrainedConfig.get_config_dict(model_args.model_name_or_path)
         config = reward_model.RewardConfig(backbone_model_name_or_path=model_args.model_name_or_path)
         model = reward_model.RewardModel(
+            transformer_cache_dir=training_args.transformer_cache_dir,
+            four_bits=training_args.four_bits,
+            bfloat16=training_args.bfloat16,
+            use_lora=training_args.use_lora,
+            lora_r=training_args.lora_r,
+            lora_alpha=training_args.lora_alpha,
+            lora_dropout=training_args.lora_dropout,
+            gradient_checkpointing=training_args.gradient_checkpointing,
             flash_attn=training_args.flash_attn,
-            # fp16=training_args.fp16,
-            # bf16=training_args.bf16,
-            # low_cpu_mem_usage=low_cpu_mem_usage,
-            # device_map=device_map,
-            checkpoint_dir=model_args.checkpoint_dir,
-            config=config,
-        )
+            config=config,)
         common.let_model_save_mem_when_zero_grad(model)
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(

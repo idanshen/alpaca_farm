@@ -142,77 +142,64 @@ def make_generative_lm(
 def get_accelerate_model(
     model_name_or_path: str,
     flash_attn: bool = False,
-    bits: int = 4,
-    bf16: bool = True,
-    max_memory_MB: int = 20000,
-    double_quant: bool = True,
+    four_bits: bool = True,
+    bfloat16: bool = True,
     gradient_checkpointing: bool = True,
-    lora_r: int = 64,
+    transformer_cache_dir: Optional[str] = None,
+    use_lora: bool = True,
+    lora_r: int = 60,
     lora_alpha: int = 16,
     lora_dropout: float = 0.05,
-    checkpoint_dir: Optional[str] = None,
-    **kwargs,):
-    assert not flash_attn, "currently flash attention is not supported (need to verify with 4bit training)"
-    assert bits in [4,8,16,32], f'bits must be in [4,8,16,32], got {bits}'
+    pretrained_lora_weights: Optional[str] = None,
+):
 
-    n_gpus = torch.cuda.device_count()
-    max_memory = f'{max_memory_MB}MB'
-    max_memory = {i: max_memory for i in range(n_gpus)}
+    assert not flash_attn, "currently flash attention is not supported (need to verify with 4bit training)"
 
     print(f'loading base model {model_name_or_path}...')
-    compute_dtype = (torch.bfloat16 if bits != 32 and bf16 else (torch.float16 if bits != 32 else torch.float32))
+    compute_dtype = (torch.bfloat16 if bfloat16 else torch.float32)
     model = AutoModelForCausalLM.from_pretrained(
         model_name_or_path,
-        load_in_4bit=bits == 4,
-        load_in_8bit=bits == 8,
+        load_in_4bit=four_bits,
         device_map='auto',
-        max_memory=max_memory,
         quantization_config=BitsAndBytesConfig(
-            load_in_4bit=bits == 4,
-            load_in_8bit=bits == 8,
-            llm_int8_threshold=6.0,
-            llm_int8_has_fp16_weight=False,
+            load_in_4bit=four_bits,
             bnb_4bit_compute_dtype=compute_dtype,
-            bnb_4bit_use_double_quant=double_quant,
+            bnb_4bit_use_double_quant=four_bits,
             bnb_4bit_quant_type='nf4'  # by default, options are {'fp4', 'nf4'}
         ),
-        torch_dtype=torch.bfloat16 if bf16 else torch.float32,
+        torch_dtype=torch.bfloat16 if bfloat16 else torch.float32,
         trust_remote_code=False,  # Set True to enable unpickling of arbitrary code in AutoModelForCausalLM#from_pretrained.
+        cache_dir=transformer_cache_dir,
     )
-    if compute_dtype == torch.float16 and bits == 4:
-        major, minor = torch.cuda.get_device_capability()
-        if major >= 8:
-            print('=' * 80)
-            print('Your GPU supports bfloat16, you can accelerate training with the argument --bf16')
-            print('=' * 80)
 
     setattr(model, 'model_parallel', True)
     setattr(model, 'is_parallelizable', True)
-    modules = find_all_linear_names(bits, model)
+    modules = find_all_linear_names(four_bits, model)
 
-    model.config.torch_dtype = torch.bfloat16 if bf16 else torch.float32
+    model.config.torch_dtype = torch.bfloat16 if bfloat16 else torch.float32
 
     model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=gradient_checkpointing)
     if gradient_checkpointing:
         model.gradient_checkpointing_enable()
-
-    config = LoraConfig(
-        r=lora_r,
-        lora_alpha=lora_alpha,
-        target_modules=modules,
-        lora_dropout=lora_dropout,
-        bias="none",
-        task_type=TaskType.CAUSAL_LM,
-    )
-    if checkpoint_dir is not None:
-        print("Loading adapters from checkpoint.")
-        model = PeftModel.from_pretrained(model, checkpoint_dir)
-        for name, p in model.named_parameters():
-            if 'lora' in name:
-                print(name, p.sum())
-    else:
-        print(f'adding LoRA modules...')
-        model = get_peft_model(model, config)
+    if use_lora:
+        config = LoraConfig(
+            r=lora_r,
+            lora_alpha=lora_alpha,
+            target_modules=modules,
+            lora_dropout=lora_dropout,
+            bias="none",
+            task_type=TaskType.CAUSAL_LM,
+        )
+        if pretrained_lora_weights is not None:
+            print("Loading adapters from checkpoint.")
+            model = PeftModel.from_pretrained(model, pretrained_lora_weights)
+            # # For Debugging
+            # for name, p in model.named_parameters():
+            #     if 'lora' in name:
+            #         print(name, p.sum())
+        else:
+            print(f'adding LoRA modules...')
+            model = get_peft_model(model, config)
 
     if gradient_checkpointing:
         if hasattr(model, "enable_input_require_grads"):
@@ -224,19 +211,19 @@ def get_accelerate_model(
 
     for name, module in model.named_modules():
         if isinstance(module, LoraLayer):
-            if bf16:
+            if bfloat16:
                 module = module.to(torch.bfloat16)
         if 'norm' in name:
             module = module.to(torch.float32)
         if 'lm_head' in name or 'embed_tokens' in name:
             if hasattr(module, 'weight'):
-                if bf16 and module.weight.dtype == torch.float32:
+                if bfloat16 and module.weight.dtype == torch.float32:
                     module = module.to(torch.bfloat16)
     return model
 
 
-def find_all_linear_names(bits, model):
-    cls = bnb.nn.Linear4bit if bits == 4 else (bnb.nn.Linear8bitLt if bits == 8 else torch.nn.Linear)
+def find_all_linear_names(four_bit, model):
+    cls = bnb.nn.Linear4bit if four_bit else torch.nn.Linear
     lora_module_names = set()
     for name, module in model.named_modules():
         if isinstance(module, cls):

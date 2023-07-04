@@ -163,9 +163,11 @@ class AutoregressiveValue(Value):
             attention_mask=sequence_attn_masks,
             use_cache=False,
         )
-        outputs = self.base_model.model(**inputs, return_dict=True)
+        outputs = self.base_model.model(**inputs, output_hidden_states=True)
         # value[t]: \hat{V}(sequences_{:t-1}); must align with `_estimate_advantage`.
-        last_hidden_state = outputs.last_hidden_state[:, queries.size(1) - 1 : -1]
+        last_hidden_state = outputs.hidden_states[-1][:, queries.size(1) - 1 : -1]
+        if last_hidden_state.dtype != torch.float32:
+            last_hidden_state = last_hidden_state.float()
         values = self.value_head(last_hidden_state).squeeze(-1)
         return dict(values=values)
 

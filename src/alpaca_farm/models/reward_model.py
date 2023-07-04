@@ -27,7 +27,6 @@ class RewardConfig(transformers.PretrainedConfig):
     def __init__(self, backbone_model_name_or_path=None, **kwargs):
         super(RewardConfig, self).__init__(**kwargs)
         self.backbone_model_name_or_path = backbone_model_name_or_path
-        # self._name_or_path = common.get_pretrained_model_name_with_model_name_or_path(backbone_model_name_or_path)
 
 
 class RewardModelOutput(ModelOutput):
@@ -37,20 +36,19 @@ class RewardModelOutput(ModelOutput):
 class RewardModel(transformers.PreTrainedModel):
     config_class = RewardConfig
 
-    def __init__(self, config: RewardConfig, checkpoint_dir: str = None, **kwargs):
+    def __init__(self, config: RewardConfig, pretrained_lora_weights: str = None, **kwargs):
         super(RewardModel, self).__init__(config)
-        # self.backbone_model = common.make_generative_lm(config.backbone_model_name_or_path, **kwargs)
         self.backbone_model = common.get_accelerate_model(
             model_name_or_path=config.backbone_model_name_or_path,
-            flash_attn=kwargs['flash_attn'],
-            checkpoint_dir=checkpoint_dir,)
+            pretrained_lora_weights=pretrained_lora_weights,
+            **kwargs)
         hidden_size = common.get_transformer_hidden_size(self.backbone_model)
         reward_head = nn.Linear(hidden_size, 1)
         torch.nn.init.zeros_(reward_head.bias)
         self.reward_head = reward_head.to(next(self.backbone_model.parameters()).device)
-        if checkpoint_dir is not None:
+        if pretrained_lora_weights is not None:
             print("load reward head from checkpoint")
-            self.reward_head = torch.load(checkpoint_dir + "/reward_head.pt")
+            self.reward_head = torch.load(pretrained_lora_weights + "/reward_head.pt")
 
     def forward(self, input_ids, attention_mask=None, return_dict=True, **kwargs):
         # We only compute the rewards and don't compute the logistic regression loss in this function so that it's
@@ -75,3 +73,5 @@ class RewardModel(transformers.PreTrainedModel):
     def set_input_embeddings(self, value: nn.Module):
         self.backbone_model.set_input_embeddings(value)
 
+    def gradient_checkpointing_enable(self):
+        self.backbone_model.gradient_checkpointing_enable()
