@@ -25,8 +25,11 @@ from torch.distributed.fsdp.fully_sharded_data_parallel import FullStateDictConf
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.fully_sharded_data_parallel import StateDictType
 from transformers.modeling_utils import unwrap_model
+from accelerate import DistributedType
+import peft
 
 from .. import accelerate_patch, common, constants, data_preprocessor, logging, torch_ops, utils
+from ..common import save_peft_model
 from ..models import reward_model as reward_model_module
 from ..models import rl_models
 from ..types import AnyPath, AnyPathOrNone, LRScheduler, Tensor
@@ -324,12 +327,15 @@ class PPOTrainer(rl_trainer.RLTrainer):
         utils.makedirs(output_dir)
 
         model, tokenizer = self.policy, self.tokenizer
-        with FSDP.state_dict_type(
-            model, StateDictType.FULL_STATE_DICT, FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-        ):
-            logger.warning("Gathering full state_dict...")
+        if self.accelerator.distributed_type == DistributedType.NO:
             state_dict = model.state_dict()
-            logger.warning("Finished gathering full state_dict...")
+        else:
+            with FSDP.state_dict_type(
+                model, StateDictType.FULL_STATE_DICT, FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+            ):
+                logger.warning("Gathering full state_dict...")
+                state_dict = model.state_dict()
+                logger.warning("Finished gathering full state_dict...")
 
         if self.accelerator.is_main_process:
             # Retain and remap policy keys.
@@ -348,8 +354,10 @@ class PPOTrainer(rl_trainer.RLTrainer):
             del state_dict
 
             unwrapped = unwrap_model(model).policy.base_model
+            peft_model_path = os.path.join(output_dir, "adapter_model")
+            save_peft_model(unwrapped, peft_model_path)
             assert isinstance(
-                unwrapped, (transformers.OPTForCausalLM, transformers.LlamaForCausalLM)
+                unwrapped, (transformers.OPTForCausalLM, transformers.LlamaForCausalLM, peft.PeftModelForCausalLM)
             ), f"Expected to save a generative policy, but found model to be of type: {type(unwrapped)}."
             if hasattr(unwrapped, "_keys_to_ignore_on_save"):
                 logger.warning(f"keys to ignore on save: {unwrapped._keys_to_ignore_on_save}")
