@@ -423,7 +423,6 @@ def make_models(
     def make_reward_model():
         reward_model_config = reward_model_module.RewardConfig(backbone_model_name_or_path=args.reward_model_name_or_path)
         base_reward_model = reward_model_module.RewardModel(
-            checkpoint_dir=args.reward_model_checkpoint_dir,
             transformer_cache_dir=args.transformer_cache_dir,
             four_bits=args.four_bits,
             bfloat16=args.bfloat16,

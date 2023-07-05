@@ -8,7 +8,7 @@ import torch
 import transformers
 from huggingface_hub import HfApi, hf_hub_download
 
-from alpaca_farm.models.reward_model import RewardConfig, RewardModel
+#from alpaca_farm.models.reward_model import RewardModel, RewardConfig
 from alpaca_farm.utils import stable_resize_token_embeddings_and_tokenizer
 
 min_transformers_version = "4.29.2"
@@ -48,7 +48,7 @@ def load_weight_diff(hf_hub_name, is_reward_model=False, device="cpu", path_to_s
         model_tuned = transformers.AutoModelForCausalLM.from_pretrained(
             hf_hub_name, device_map={"": torch.device(device)}, torch_dtype=torch.float32
         )
-    tokenizer_tuned = transformers.AutoTokenizer.from_pretrained(hf_hub_name)
+    tokenizer_tuned = transformers.AutoTokenizer.from_pretrained(hf_hub_name, use_fast=False)
     return model_tuned.eval(), tokenizer_tuned
 
 
@@ -67,7 +67,7 @@ def load_raw_model(model_dir, device="cpu"):
     model_raw = transformers.AutoModelForCausalLM.from_pretrained(
         model_dir, device_map={"": torch.device(device)}, torch_dtype=torch.float32
     )
-    tokenizer_raw = transformers.AutoTokenizer.from_pretrained(model_dir)
+    tokenizer_raw = transformers.AutoTokenizer.from_pretrained(model_dir, use_fast=False)
     if tokenizer_raw.pad_token is None:
         stable_resize_token_embeddings_and_tokenizer(
             model=model_raw, tokenizer=tokenizer_raw, special_tokens_dict=dict(pad_token="[PAD]")
@@ -91,7 +91,7 @@ def reconstruct_tuned_model(model_tuned, model_raw, is_reward_model=False):
 
 def integrity_check(model_tuned, hf_hub_name):
     model_sum = sum(param.sum() for param in model_tuned.state_dict().values()).item()
-    model_sum_file = hf_hub_download(repo_id=hf_hub_name, filename="model_sum.txt")
+    model_sum_file = hf_hub_download(repo_id=hf_hub_name, filename="model_sum.txt", cache_dir="/data/pulkitag/models/idanshen/")
     with open(model_sum_file, "r") as f:
         model_sum_hf_hub = float(f.read())
     return np.isclose(model_sum_hf_hub, model_sum)
