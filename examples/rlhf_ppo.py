@@ -65,8 +65,7 @@ def main():
 
     logger.warning("hooray! training finished successfully! now on to model saving.", main_process_only=True)
 
-    trainer.save_state()
-    common.safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir, model=trainer.policy)
+    trainer.save_model()
     logger.warning("hooray again! model saving worked.", main_process_only=True)
 
 
