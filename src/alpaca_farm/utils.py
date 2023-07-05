@@ -134,27 +134,28 @@ def stable_resize_token_embeddings_and_tokenizer(
 
 
 def stable_resize_token_embeddings(
-    model: transformers.PreTrainedModel, target_size: int, checkpoint_dir: str = None,
+    model: transformers.PreTrainedModel, target_size: int, checkpoint_dir: str = None, jitter_new_embeddings=False,
 ):
     num_new_tokens = target_size - model.get_input_embeddings().weight.size(0)
     model.resize_token_embeddings(target_size)
 
-    # New token embedding takes the average of existing ones.
-    # We need this check since `num_new_tokens` can be negative if token embeddings were padded initially.
-    # This can happen when there's multiple-of-64 padding.
     if num_new_tokens > 0:
-        input_embeddings = model.get_input_embeddings().weight.data
-        output_embeddings = model.get_output_embeddings().weight.data
 
-        input_embeddings_avg = input_embeddings[:-num_new_tokens].mean(
-            dim=0, keepdim=True
-        )
-        output_embeddings_avg = output_embeddings[:-num_new_tokens].mean(
-            dim=0, keepdim=True
-        )
+        @torch.inference_mode()
+        def stable_init(embedding):
+            embedding_data = embedding.weight.data
+            embedding_avg = embedding_data[:-num_new_tokens].mean(dim=0, keepdim=True)
+            embedding_data[-num_new_tokens:] = embedding_avg
+            if jitter_new_embeddings:
+                embedding_std = embedding_data[:-num_new_tokens].std(dim=0, keepdim=True)
+                # The random tensor must be of the same shape as the new embeddings.
+                embedding_data[-num_new_tokens:] += torch.randn_like(embedding_data[-num_new_tokens:]) * embedding_std
 
-        input_embeddings[-num_new_tokens:] = input_embeddings_avg
-        output_embeddings[-num_new_tokens:] = output_embeddings_avg
+        input_embeddings = model.get_input_embeddings()  # Must grab this again after resize.
+        output_embeddings = model.get_output_embeddings()
+        # It doesn't matter if there's weight sharing or not; with sharing, the second init will overwrite the first.
+        for embeddings in (input_embeddings, output_embeddings):
+            stable_init(embeddings)
 
     if isinstance(model, PeftModel) and checkpoint_dir is not None:
         print('Loading embeddings from checkpoint.')
@@ -207,3 +208,12 @@ class InfiniteLoader(object):
         except StopIteration:
             self.iterator = iter(self.loader)
             return next(self.iterator)
+
+
+def parallel_sort(*args: Sequence, key=None, reverse=False):
+    """Parallel sort of multiple lists."""
+    if key is None:
+        # Parallel sort based on the order of the first list.
+        key = lambda inputs: inputs[0]  # noqa
+    ret = sorted(zip_(*args), key=key, reverse=reverse)
+    return tuple([ret_i[j] for ret_i in ret] for j in range(len(args)))

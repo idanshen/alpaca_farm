@@ -20,6 +20,7 @@ import pandas as pd
 import torch
 import tqdm
 import transformers
+from torch import nn
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullStateDictConfig
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.fully_sharded_data_parallel import StateDictType
@@ -38,12 +39,12 @@ class PPOTrainer(rl_trainer.RLTrainer):
     def __init__(
         self,
         args,
-        train_dataset: data_preprocessor.QueryResponseDataset,
-        eval_dataset: data_preprocessor.QueryResponseDataset,
+        train_dataset: data_preprocessor.QueryDataset,
+        eval_dataset: data_preprocessor.QueryDataset,
         data_collator: Callable,
         policy: rl_models.ActorCritic,
         ref_policy: rl_models.Policy,
-        reward_model,
+        reward_model: nn.Module,
         tokenizer: transformers.PreTrainedTokenizer,
         accelerator: accelerate_patch.MyAccelerator,
         optimizer: Optional[torch.optim.Optimizer] = None,
@@ -466,7 +467,7 @@ def make_models(
     reward_model.requires_grad_(False)
     reward_model = accelerator.prepare(reward_model)
 
-    # TODO: This is a hack to get FSDP running. Remove in the future when we figure things out.
+    # TODO: This is a hack to get FSDP running. Remove in the future when this is fixed.
     if accelerator.distributed_type == accelerate.DistributedType.FSDP:
         inputs = tokenizer("fsdp are you happy now??? :)" * 50, return_tensors="pt")
         inputs = {key: value.to(accelerator.device) for key, value in inputs.items()}

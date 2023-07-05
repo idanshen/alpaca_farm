@@ -15,19 +15,12 @@
 
 from typing import Optional
 
+import alpaca_eval.utils as eval_utils
 import datasets
 import fire
 import pandas as pd
 
-from alpaca_farm import (
-    constants,
-    data_preprocessor,
-    logging,
-    utils,
-    types,
-    openai_utils,
-)
-import alpaca_farm.auto_annotations.utils as ann_utils
+from alpaca_farm import constants, data_preprocessor, logging, openai_utils, types, utils
 
 logger = logging.get_logger(__name__)
 MODEL_TO_PROMPTS = {
@@ -38,6 +31,7 @@ MODEL_TO_PROMPTS = {
 }
 
 
+# TODO: all of this could just use alpaca_eval
 def main_oai_baselines(
     all_instructions: Optional[types.AnyData] = None,
     model_name: str = "text-davinci-003",
@@ -60,7 +54,7 @@ def main_oai_baselines(
 
     prompt_path : str, optional
         Path to the prompt dictionary. If None, uses the default prompt for the model.
-        
+
     save_path : str, optional
         Path to save the outputs to. {model_name} will be formatted. If None, does not save.
 
@@ -77,20 +71,16 @@ def main_oai_baselines(
         )["eval"]
 
     prompts, list_dict_data, _ = data_preprocessor.format_prompt_with_data_frame(
-        df=ann_utils.convert_to_dataframe(all_instructions),
+        df=eval_utils.convert_to_dataframe(all_instructions),
         prompt_dict=utils.jload(prompt_path),
     )
 
     if openai_utils.requires_chatml(model_name):
-        decoding_args = decoding_args or openai_utils.OpenAIDecodingArgumentsChat(
-            temperature=0.7, max_tokens=300
-        )
+        decoding_args = decoding_args or openai_utils.OpenAIDecodingArgumentsChat(temperature=0.7, max_tokens=300)
         num_procs = num_procs or 5
         batch_size = batch_size or 1
     else:
-        decoding_args = decoding_args or openai_utils.OpenAIDecodingArguments(
-            temperature=0.7, max_tokens=300
-        )
+        decoding_args = decoding_args or openai_utils.OpenAIDecodingArguments(temperature=0.7, max_tokens=300)
         num_procs = num_procs or 1
         batch_size = batch_size or 10
 
@@ -104,7 +94,7 @@ def main_oai_baselines(
         **kwargs,
     )
 
-    df_data = ann_utils.convert_to_dataframe(list_dict_data)
+    df_data = eval_utils.convert_to_dataframe(list_dict_data)
     df_data["output"] = completions
     df_data["generator"] = model_name
     columns_to_keep = [
@@ -121,7 +111,6 @@ def main_oai_baselines(
         df_data[columns_to_keep].to_json(save_path.format(model_name=model_name), orient="records", indent=2)
 
     return df_data[columns_to_keep]
-
 
 
 if __name__ == "__main__":

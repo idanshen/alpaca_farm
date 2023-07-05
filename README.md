@@ -6,7 +6,7 @@
 
 [![Code License](https://img.shields.io/badge/Code%20License-Apache_2.0-green.svg)](https://github.com/tatsu-lab/alpaca_farm/blob/main/LICENSE)
 [![Data License](https://img.shields.io/badge/Data%20License-CC%20By%20NC%204.0-red.svg)](https://github.com/tatsu-lab/alpaca_farm/blob/main/DATA_LICENSE)
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/release/python-390/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/release/python-3100/)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 Research and development on learning from human feedback is difficult because methods
@@ -50,7 +50,13 @@ learning algorithms for comparison and modification.
 
 ## Installation
 
-For basic installation, run
+To install the stable release, run
+
+```bash
+pip install alpaca-farm
+```
+
+To install from the latest commit on `main` branch, run
 
 ```bash
 pip install git+https://github.com/tatsu-lab/alpaca_farm.git
@@ -65,16 +71,7 @@ packages.
 **Notebook
 example:** [![Using](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/tatsu-lab/alpaca_farm/blob/main/examples/auto_annotations.ipynb)
 
-<details>
-  <summary><b>Installing auto annotators with minimal dependencies</b></summary>
-    To install only the set of dependencies for simulating pairwise preference, run
-
-```bash
-pip install git+https://github.com/tatsu-lab/alpaca_farm.git --no-deps
-pip install -r https://raw.githubusercontent.com/tatsu-lab/alpaca_farm/main/src/alpaca_farm/auto_annotations/requirements.txt
-```
-
-</details>
+For all the evaluation and annotations we use [**AlpacaEval**](https://github.com/tatsu-lab/alpaca_eval/tree/main#making-a-new-evaluator) with our pool of automatic annotators and additional noise to simulate the variance of human annotations.
 
 To get started, set the environment variable `OPENAI_API_KEY` to your OpenAI API key, and (optionally) `OPENAI_ORG` to
 the
@@ -106,12 +103,12 @@ annotator = PairwiseAutoAnnotator()
 annotated = annotator.annotate_pairs(outputs_pairs)
 
 print(annotated[-1:])
-# [{'instruction': 'If you could help me write an email to my friends inviting them to dinner on Friday, it would be greatly appreciated.',
-#   'input': '',
-#   'output_1': "Dear Friends, \r\n\r\nI hope this message finds you well. I'm excited to invite you to dinner on Friday. We'll meet at 7:00 PM at [location]. I look forward to seeing you there. \r\n\r\nBest,\r\n[Name]",
-#   'output_2': "Hey everyone! \n\nI'm hosting a dinner party this Friday night and I'd love for all of you to come over. We'll have a delicious spread of food and some great conversations. \n\nLet me know if you can make it - I'd love to see you all there!\n\nCheers,\n[Your Name]",
-#   'annotator': 'davinci003_3',
-#   'preference': 1.0}]
+# [{'instruction': 'If you could help me write an email to my friends inviting them to dinner on Friday, it would be greatly appreciated.', 
+# 'input': '', 
+# 'output_1': "Dear Friends, \r\n\r\nI hope this message finds you well. I'm excited to invite you to dinner on Friday. We'll meet at 7:00 PM at [location]. I look forward to seeing you there. \r\n\r\nBest,\r\n[Name]", 
+# 'output_2': "Hey everyone! \n\nI'm hosting a dinner party this Friday night and I'd love for all of you to come over. We'll have a delicious spread of food and some great conversations. \n\nLet me know if you can make it - I'd love to see you all there!\n\nCheers,\n[Your Name]",
+# 'annotator': 'chatgpt_2', 
+# 'preference': 2}]
 ```
 
 If instead of pairs you have a list of sampled outputs, you can use the following.
@@ -119,29 +116,21 @@ If instead of pairs you have a list of sampled outputs, you can use the followin
 ```python
 multisample_outputs = [dict(instruction="repeat the following", input="yes", output=["yes", "no", "maybe", "repeat"])]
 print(annotator.annotate_samples(multisample_outputs))
-# [{'sample_id': 0,
-#   'instruction': 'repeat the following',
-#   'input': 'yes',
-#   'output_1': 'yes',
-#   'output_2': 'no',
-#   'annotator': 'gpt4_2',
+# [{'sample_id': 0, 
+#   'instruction': 'repeat the following', 
+#   'input': 'yes', 
+#   'output_1': 'yes', 
+#   'output_2': 'maybe', 
+#   'annotator': 'chatgpt_2', 
 #   'preference': 1}]
 ```
 
 ## Running automatic evaluation
 
-<details>
-  <summary><b>Installing auto annotators with minimal dependencies</b></summary>
-    To install only the auto annotators with minimal additional packages use the following
+For all the evaluation we use [**AlpacaEval**](https://github.com/tatsu-lab/alpaca_eval/tree/main#making-a-new-evaluator) with our pool of automatic annotators. 
 
-```bash
-pip install git+https://github.com/tatsu-lab/alpaca_farm.git --no-deps
-pip install -r https://raw.githubusercontent.com/tatsu-lab/alpaca_farm/main/src/alpaca_farm/auto_annotations/requirements.txt
-```
-
-</details>
-
-To get started, set the environment variable OPENAI_API_KEY to your OpenAI API key, and (optionally) OPENAI_ORG to the organization ID. You can do this by running
+To get started, set the environment variable OPENAI_API_KEY to your OpenAI API key, and (optionally) OPENAI_ORG to the
+organization ID. You can do this by running
 
 ```bash
 export OPENAI_API_KEY="sk..."
@@ -163,14 +152,15 @@ path_to_outputs = "examples/data/eval_gpt-3.5-turbo-0301.json"
 # ...]
 
 alpaca_leaderboard(path_or_all_outputs=path_to_outputs, name="My fancy model", is_print_metrics=True)
-#                                         n_draws  n_total  n_wins  n_wins_base  standard_error  win_rate
-# GPT4                                      17.00   805.00  639.00       149.00            1.38     80.43
-# ChatGPT                                    9.00   804.00  489.00       306.00            1.71     61.38
-# My fancy model                             9.00   804.00  483.00       312.00            1.71     60.63
-# rlhf_llama_7b_regen_v7_3ep_v12_ckpt_20     9.00   803.00  370.00       424.00            1.75     46.64
-# sft_llama_7b_regen_v7_3ep                 16.00   804.00  320.00       468.00            1.72     40.80
-# Davinci001                                 0.00   805.00  201.00       604.00            1.53     24.97
-# LLaMA 7B                                   0.00   786.00   94.00       692.00            1.16     11.96
+#                      n_draws  n_total  n_wins  n_wins_base  standard_error  win_rate
+# GPT4                   17.00   804.00  631.00       156.00            1.40     79.54
+# ChatGPT                 9.00   805.00  503.00       293.00            1.69     63.04
+# My fancy model          9.00   803.00  497.00       297.00            1.70     62.45
+# RLHF PPO                9.00   805.00  392.00       404.00            1.75     49.25
+# SFT 52k (Alpaca 7B)    16.00   805.00  312.00       477.00            1.71     39.75
+# SFT 10k                19.00   802.00  278.00       505.00            1.67     35.85
+# Davinci001              0.00   805.00  201.00       604.00            1.53     24.97
+# LLaMA 7B                0.00   775.00   98.00       677.00            1.19     12.65
 ```
 
 If you want to compare against our baseline model (Davinci003 with
@@ -228,7 +218,7 @@ To replicate our RLHF PPO model trained with simulated reward model in the paper
 
 ```bash
 bash examples/scripts/rlhf_ppo.sh \
-  <your_output_dir> \
+  <your_output_dir_for_ppo> \
   <your_wandb_run_name> \
   <your_output_dir_for_reward_model> \
   <your_output_dir_for_sft10k> \
@@ -239,9 +229,9 @@ bash examples/scripts/rlhf_ppo.sh \
 according
 to the previous step.
 Note the KL penalty coefficient for human reward PPO is much larger than for simulated PPO.
-Set `<kl_coef>` to `0.0067` for simulated PPO, and `0.0002` for human PPO to recover our original results.
-Performance of the PPO model is typically much better than SFT at 20-80 PPO steps (less than 4 pass through the entire
-set of instructions), and starts to decay with more PPO steps.
+Set `<kl_coef>` to `0.0067` for simulated PPO, and `0.02` for human PPO to recover our original results.
+Performance of the PPO model is typically much better than SFT at 20-80 PPO steps (less than 4 passes through the entire
+set of instructions) and starts to decay with more PPO steps.
 
 ### Best-of-n decoding
 
@@ -263,6 +253,47 @@ python examples/best_of_n.py \
 
 You can then use the generated samples at `<your_output_path_to_store_samples>` directly with our automated evaluation.
 
+### Expert Iteration
+
+To replicate our expert iteration results for the AlpacaFarm evaluation suite, first produce best-of-n samples. Run
+
+```bash
+python examples/best_of_n.py \
+  --task "run_best_of_n" \
+  --decoder_name_or_path <your_output_dir_for_decoder> \  # SFT10k model.
+  --scorer_name_or_path <your_output_dir_for_reward_model> \
+  --num_return_sequences 16 \  # This is the n in best-of-n.
+  --per_device_batch_size 4 \  # Reduce this if you don't have enough memory.
+  --split "unlabeled" \
+  --mixed_precision "bf16" \
+  --tf32 True \
+  --flash_attn True \
+  --output_path '<your_output_dir_for_expiter_data>/best_of_n_samples.json'
+```
+
+Then perform supervised fine-tuning from the SFT10k checkpoint with the best-of-n samples
+
+```bash
+bash examples/scripts/expiter.sh \
+  <your_output_dir_for_expiter> \
+  <your_wandb_run_name> \
+  <your_output_dir_for_sft10k> \
+  <your_output_dir_for_expiter_data>
+```
+
+### Quark
+
+To replicate our Quark results for the AlpacaFarm evaluation suite, run
+
+```bash
+bash examples/scripts/rlhf_quark.sh \
+  <your_output_dir_for_quark> \
+  <your_wandb_run_name> \
+  <your_output_dir_for_reward_model> \
+  <your_output_dir_for_sft10k> \
+  <kl_coef>
+```
+
 ### OpenAI models
 
 To run the OpenAI reference models with our prompts and decoding hyperparameters, run
@@ -277,7 +308,10 @@ You can then use the generated samples at `<save_path>` directly with our automa
 
 ## Downloading pre-tuned AlpacaFarm models
 
-We provide model checkpoints for reward models and all our reference methods, listed in Table 2 of our [paper](https://arxiv.org/abs/2305.14387). Concretely, we tune each reference method in AlpacaFarm simulation and on human preference data and release both versions. The current list of models (available [here](https://huggingface.co/tatsu-lab)) includes:
+We provide model checkpoints for reward models and all our reference methods, listed in Table 2 of
+our [paper](https://arxiv.org/abs/2305.14387). Concretely, we tune each reference method in AlpacaFarm simulation and on
+human preference data and release both versions. The current list of models
+(available [here](https://huggingface.co/tatsu-lab)) includes:
 
 - `sft10k`, the supervised learning base model that we collect preference data with.
 - `reward-model-sim`, the reward model trained on AlpacaFarm preference data.
@@ -290,7 +324,9 @@ We provide model checkpoints for reward models and all our reference methods, li
 - `feedme-human`, the FeedME method trained on human preferences.
 - `reward-condition-sim`, the reward conditioning method trained on simulated preferences.
 
-To download these checkpoints, first make sure to have a LLaMA-7B checkpoint [converted into the huggingface format](https://huggingface.co/docs/transformers/main/model_doc/llama).
+To download and recover these checkpoints, first make sure to have a LLaMA-7B
+checkpoint [converted into the Hugging Face format](https://huggingface.co/docs/transformers/main/model_doc/llama)
+**with transformers>=4.29.2**.
 Then, run the following to download all AlpacaFarm models:
 
 ```
@@ -308,13 +344,8 @@ python -m pretrained_models.recover_model_weights \
   --models-save-dir <dir_to_save_all_models>
 ```
 
-To download either of the reward models individually, you'll need to have `sft10k` downloaded first to `<dir_to_save_all_models>`.
-
-## Coming soon
-
-- [ ] Quark implementation
-- [ ] Expert iteration implementation
-- [ ] Human evaluation of generated samples from leaderboard models
+To download either of the reward models individually, you'll need to have `sft10k` downloaded first
+to `<dir_to_save_all_models>`.
 
 ## Citation
 

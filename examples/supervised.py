@@ -16,7 +16,7 @@ import contextlib
 import os
 import pathlib
 from dataclasses import dataclass, field
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 import transformers
 from transformers import Trainer
@@ -43,10 +43,29 @@ class ModelArguments:
 
 @dataclass
 class DataArguments:
-    dataset_path: str = field(default="tatsu-lab/alpaca_farm")
-    dataset_name: str = field(default="alpaca_instructions")
-    train_splits: List[str] = field(default_factory=lambda: ["sft"])
-    eval_splits: List[str] = field(default_factory=lambda: ["val"])
+    dataset_path: str = field(
+        default="tatsu-lab/alpaca_farm",
+        metadata={
+            "help": "Path to the dataset. Either points to a location on Hugging Face hub or a local folder. "
+            "If the path points to a local folder, the folder must be structured properly "
+            "(see documentation for datasets.load_dataset)."
+        },
+    )
+    dataset_name: Optional[str] = field(
+        default="alpaca_instructions",
+        metadata={"help": "Name of the dataset to load -- the argument `name` passed to `datasets.load_dataset`."},
+    )
+    train_splits: List[str] = field(
+        default_factory=lambda: ["sft"],
+        metadata={"help": "Splits to use for training. This must not be an empty list."},
+    )
+    eval_splits: Optional[List[str]] = field(
+        default_factory=lambda: ["val"],
+        metadata={
+            "help": "Splits to use for evaluation. "
+            "If None, empty, or the splits are not found in the dataset, no evaluation is performed."
+        },
+    )
     prompt_dict_path: str = field(
         default=pathlib.Path(__file__).parent / "prompts" / "v0_inputs_noinputs.json",
         metadata={"help": "Path to the dictionary for the prompt to format examples."},
