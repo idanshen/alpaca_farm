@@ -151,6 +151,7 @@ def get_accelerate_model(
     lora_alpha: int = 16,
     lora_dropout: float = 0.05,
     pretrained_lora_weights: Optional[str] = None,
+    **kwargs,
 ):
 
     assert not flash_attn, "currently flash attention is not supported (need to verify with 4bit training)"
