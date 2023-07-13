@@ -196,6 +196,42 @@ class ActorCritic(nn.Module):
         return self.policy.respond(queries=queries, query_attn_masks=query_attn_masks, temperature=temperature)
 
 
+class Qfunction(nn.Module, abc.ABC):
+    def __init__(
+        self, args, base_model: transformers.PreTrainedModel, base_tokenizer: transformers.PreTrainedTokenizer
+    ):
+        super().__init__()
+        self.args = args
+        self.base_model = base_model
+        self.base_tokenizer = base_tokenizer
+        hidden_size = common.get_transformer_hidden_size(base_model)
+        q_head = torch.nn.Linear(hidden_size, len(base_tokenizer))
+        q_head.weight.data.zero_()
+        q_head.bias.data.zero_()
+        self.q_head = q_head.to(next(base_model.parameters()).device, dtype=torch.bfloat16)
+
+    @abc.abstractmethod
+    def forward(self, queries: Tensor, query_attn_masks: Tensor, responses: Tensor) -> Dict[str, Tensor]:
+        raise NotImplementedError
+
+
+class AutoregressiveQfunction(Qfunction):
+    def forward(self, queries: Tensor, query_attn_masks: Tensor, responses: Tensor) -> Dict[str, Tensor]:
+        sequences = torch.cat([queries, responses], dim=1)
+        sequence_attn_masks = sequences.ne(self.base_tokenizer.pad_token_id)
+
+        inputs = self.base_model.prepare_inputs_for_generation(
+            input_ids=sequences,
+            attention_mask=sequence_attn_masks,
+            use_cache=False,
+        )
+        outputs = self.base_model.model(**inputs, output_hidden_states=True)
+
+        last_hidden_state = outputs.hidden_states[-1][:, queries.size(1) - 1 : -1]
+        qvalues = self.q_head(last_hidden_state).squeeze(-1)
+        return dict(qvalues=qvalues)
+
+
 def make_policy_with_base_model(
     args, base_model: transformers.PreTrainedModel, base_tokenizer: transformers.PreTrainedTokenizer
 ) -> Policy:
@@ -214,3 +250,13 @@ def make_value_with_base_model(
         raise NotImplementedError
     else:
         return AutoregressiveValue(args, base_model, base_tokenizer)
+
+def make_qfunction_with_base_model(
+    args,
+    base_model: transformers.PreTrainedModel,
+    base_tokenizer: transformers.PreTrainedTokenizer,
+) -> Qfunction:
+    if base_model.config.is_encoder_decoder:
+        raise NotImplementedError
+    else:
+        return AutoregressiveQfunction(args, base_model, base_tokenizer)

@@ -163,6 +163,9 @@ cython_debug/
 **/*.DS_Store
 
 wandb/
-tmp/
+spf/
 tmp_ppo/
 pretrained_models/sft10k/
+
+examples/tmp_fqe/
+examples/tmp/

@@ -87,6 +87,7 @@ class TrainingArguments(transformers.TrainingArguments):
     gamma: float = field(default=1.0)
     lam: float = field(default=1.0)
     whiten_rewards: bool = field(default=True)
+    td_one: bool = field(default=True)
     adam_epsilon: float = field(
         default=1e-5,
         metadata={
