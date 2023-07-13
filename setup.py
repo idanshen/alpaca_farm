@@ -12,10 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 import os
 import re
 
 import setuptools
+
+
+def parse_requirements(filename):
+    logging.warning(f"Reading requirements from {filename}")
+    with open(filename, "r") as file:
+        lines = [line.strip() for line in file]
+    return [line for line in lines if line and not line.startswith("#")]
+
 
 here = os.path.realpath(os.path.dirname(__file__))
 with open(os.path.join(here, "src", "alpaca_farm", "__init__.py")) as f:
@@ -25,31 +34,16 @@ with open(os.path.join(here, "src", "alpaca_farm", "__init__.py")) as f:
     else:
         raise RuntimeError("Unable to find `__version__`.")
 
+# Must use absolute path here to ensure `python3 -m build` runs when porting package to pypi.
+install_requires = parse_requirements(os.path.join(os.path.dirname(__file__), "requirements.txt"))
+
 setuptools.setup(
     name="alpaca_farm",
     version=version,
     package_dir={"": "src"},
     packages=setuptools.find_packages("src"),
     include_package_data=True,
-    install_requires=[
-        "datasets",
-        "einops",
-        "nltk",
-        "accelerate>=0.18.0",
-        "tabulate",
-        "transformers>=4.26.0",
-        "statsmodels",
-        "tiktoken>=0.3.2",
-        "markdown",
-        "scikit-learn",
-        "sentencepiece",
-        "pandas",
-        "wandb",
-        "torch>=1.13.1",
-        "fire",
-        "openai",
-        "alpaca_eval",
-    ],
+    install_requires=install_requires,
     extras_require={
         "full": [
             # Training efficiency.
