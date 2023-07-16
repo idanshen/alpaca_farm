@@ -12,10 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import datasets
 import pandas as pd
 import transformers
 
+from alpaca_farm.utils import jload, jdump
 from . import logging, utils
 from .data_postprocessor import RewardConditioningPromptPostprocessor
 from .data_preprocessor import (
@@ -24,8 +26,10 @@ from .data_preprocessor import (
     DataCollatorForSFTDataset,
     DataCollatorForStackableDataset,
     QueryDataset,
+    QueryResponseDataset,
     SFTDataset,
     split_train_into_train_and_eval,
+    format_prompt,
 )
 
 logger = logging.get_logger(__name__)
@@ -118,6 +122,20 @@ def make_rl_data_module(
         query_len=training_args.query_len,
         prompt_postprocessor=prompt_postprocessor,
     )
+
+    if training_args.static_dataset:
+        path_to_data = training_args.static_dataset_path
+        assert os.path.isfile(path_to_data)
+        list_dict_data = jload(path_to_data)
+        prompts = [format_prompt(example=dict_data, prompt_dict=prompt_dict) for dict_data in list_dict_data]
+        if prompt_postprocessor is not None:
+            prompts = [prompt_postprocessor(prompt) for prompt in prompts]
+        train_dataset = QueryResponseDataset(tokenizer=tokenizer,
+                                             queries= prompts,
+                                             responses=[dict_data['output'] for dict_data in list_dict_data],
+                                             query_len=training_args.query_len,
+                                             response_len=300,)
+
     eval_dataset = QueryDataset(
         df=eval_df,
         prompt_dict=prompt_dict,

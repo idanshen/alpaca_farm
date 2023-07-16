@@ -116,8 +116,6 @@ class FQETrainer(rl_trainer.RLTrainer):
 
         self.ref_policy.eval()
         self.reward_model.eval()
-        # For debugging.
-        self.policy.eval()
 
         rollouts = []
         for batch_idx, batch in tqdm.tqdm(
@@ -125,21 +123,27 @@ class FQETrainer(rl_trainer.RLTrainer):
             disable=not self.accelerator.is_main_process,
             desc="rollout",
         ):
-            # Sample rollouts.
-            queries, query_attn_masks = common.unpack_dict(
-                common.prepare_inputs(batch, device=self.accelerator.device),
-                keys=("queries", "query_attn_masks"),
-            )
-            respond_outputs = self.ref_policy.respond(queries, query_attn_masks, temperature=self.args.temperature)
-            (responses,) = common.unpack_dict(respond_outputs, ("responses",))
 
-            # Evaluate logprobs of the samples.
-            rollouts_batch = {"queries": queries, "query_attn_masks": query_attn_masks, "responses": responses}
-            # ref_policy_outputs = self.ref_policy(**rollouts_batch, temperature=self.args.temperature)
-            # ref_policy_outputs = common.unpack_dict(
-            #     ref_policy_outputs, keys=("logprobs", "entropies"), return_type=dict
-            # )
-            # rollouts_batch.update(ref_policy_outputs)
+            if self.args.static_dataset:
+                # Get a batch of queries and responses from the dataset.
+                queries, query_attn_masks, responses = common.unpack_dict(
+                    common.prepare_inputs(batch, device=self.accelerator.device),
+                    keys=("queries", "query_attn_masks", "responses"),
+                )
+
+                # Evaluate logprobs of the samples.
+                rollouts_batch = {"queries": queries, "query_attn_masks": query_attn_masks, "responses": responses}
+            else:
+                # Sample rollouts using the reference policy.
+                queries, query_attn_masks = common.unpack_dict(
+                    common.prepare_inputs(batch, device=self.accelerator.device),
+                    keys=("queries", "query_attn_masks"),
+                )
+                respond_outputs = self.ref_policy.respond(queries, query_attn_masks, temperature=self.args.temperature)
+                (responses,) = common.unpack_dict(respond_outputs, ("responses",))
+
+                # Evaluate logprobs of the samples.
+                rollouts_batch = {"queries": queries, "query_attn_masks": query_attn_masks, "responses": responses}
 
             # Evaluate reward of the samples.
             text_queries, text_responses = tuple(
@@ -221,8 +225,6 @@ class FQETrainer(rl_trainer.RLTrainer):
 
         # Compute the Q-values for the responses
         q_values = self.policy(queries, query_attn_masks, responses)["qvalues"]
-        # print(responses.cpu().detach().numpy().min())
-        # print(responses.cpu().detach().numpy().max())
         q_values = torch.gather(q_values, dim=2, index=responses.unsqueeze(-1)).squeeze(-1)
 
         if self.args.td_one:
@@ -330,7 +332,7 @@ class FQETrainer(rl_trainer.RLTrainer):
             unwrapped = model.base_model
             peft_model_path = os.path.join(output_dir, "adapter_model")
             save_peft_model(unwrapped, peft_model_path)
-            torch.save(model.q_head, os.path.join(peft_model_path, "reward_head.pt"))
+            torch.save(model.q_head, os.path.join(peft_model_path, "q_head.pt"))
 
             assert isinstance(
                 unwrapped, (transformers.OPTForCausalLM, transformers.LlamaForCausalLM, peft.PeftModelForCausalLM)
@@ -388,7 +390,7 @@ def make_models(
     args,
     accelerator: accelerate.Accelerator,
 ) -> dict:
-    def make_generative_policy():
+    def make_generative_policy(is_trainable):
         base_model = common.get_accelerate_model(
             model_name_or_path=args.policy_model_name_or_path,
             pretrained_lora_weights=args.policy_model_checkpoint_dir,
@@ -400,12 +402,13 @@ def make_models(
             lora_alpha=args.lora_alpha,
             lora_dropout=args.lora_dropout,
             gradient_checkpointing=args.gradient_checkpointing,
-            flash_attn=args.flash_attn,)
+            flash_attn=args.flash_attn,
+            is_trainable=is_trainable,)
         utils.stable_resize_token_embeddings(base_model, len(tokenizer), checkpoint_dir=args.policy_model_checkpoint_dir)
         return base_model
 
-    def make_reward_model():
-        reward_model_config = reward_model_module.RewardConfig(backbone_model_name_or_path=args.reward_model_name_or_path)
+    def make_reward_model(is_trainable):
+        reward_model_config = reward_model_module.RewardConfig(backbone_model_name_or_path=args.reward_model_name_or_path, train_embedding=False)
         base_reward_model = reward_model_module.RewardModel(
             transformer_cache_dir=args.transformer_cache_dir,
             four_bits=args.four_bits,
@@ -417,8 +420,9 @@ def make_models(
             gradient_checkpointing=args.gradient_checkpointing,
             flash_attn=args.flash_attn,
             pretrained_lora_weights=args.reward_model_checkpoint_dir,
+            is_trainable=is_trainable,
             config=reward_model_config,)
-        utils.stable_resize_token_embeddings(base_reward_model.backbone_model, len(tokenizer), checkpoint_dir=args.reward_model_checkpoint_dir)
+        utils.stable_resize_token_embeddings(base_reward_model.backbone_model, len(tokenizer), checkpoint_dir=args.reward_model_checkpoint_dir, train_embedding=False)
         return base_reward_model
 
     # Model construction below seems convoluted, but it's made to trade time for RAM efficiency.
@@ -427,26 +431,30 @@ def make_models(
     # General strategy is to 1) create a model, 2) move it to target device / shard it, 3) then start next model,
     # as opposed to creating all needed models on CPU first, and separately moving / sharding each.
     # policy = rl_models.make_policy_with_base_model(args, make_generative_policy(), tokenizer)
+    # args.reward_model_checkpoint_dir = "/data/pulkitag/models/idanshen/alpaca_farm/examples/tmp_fqe/test_1/adapter_model"
     if args.init_value_with_reward:
         # Initialize value from reward model a la OAI.
         logger.warning("Initializing value model with reward model.")
-        qfunction_model = rl_models.make_qfunction_with_base_model(args, make_reward_model().backbone_model, tokenizer)
+        qfunction_model = rl_models.make_qfunction_with_base_model(args, make_reward_model(is_trainable=True).backbone_model, tokenizer)
     else:
         logger.warning("Initializing value model with policy model.")
         # Initialize value from policy. Works for sanity, but generally performs worse in instruction-following.
-        qfunction_model = rl_models.make_qfunction_with_base_model(args, make_generative_policy(), tokenizer)
+        qfunction_model = rl_models.make_qfunction_with_base_model(args, make_generative_policy(is_trainable=True), tokenizer)
     # actor_critic = rl_models.ActorCritic(policy=None, value_model=value_model)
     # We cast how respond should run. It's important the dtypes be consistent with training, since a bf16
     # fine-tuned model might not work with fp16 inference.
     # Cast step below must precede accelerator.prepare(), since wrapped model might not have `respond` method.
+    # if os.path.exists("/data/pulkitag/models/idanshen/alpaca_farm/examples/tmp_fqe/adapter_model/q_head.pt"):
+    #     qfunction_model.q_head.load_state_dict(torch.load("/data/pulkitag/models/idanshen/alpaca_farm/examples/tmp_fqe/adapter_model/q_head.pt").state_dict())
+
     qfunction_model = common.prepare_model_for_custom_fn(model=qfunction_model, fn_name="respond", accelerator=accelerator)
     qfunction_model = accelerator.prepare(qfunction_model)  # noqa
 
-    ref_policy = rl_models.make_policy_with_base_model(args, make_generative_policy(), tokenizer)
+    ref_policy = rl_models.make_policy_with_base_model(args, make_generative_policy(is_trainable=False), tokenizer)
     ref_policy.requires_grad_(False)
     ref_policy = accelerator.prepare(ref_policy)  # noqa
 
-    reward_model = make_reward_model()
+    reward_model = make_reward_model(is_trainable=False)
     reward_model.requires_grad_(False)
     reward_model = accelerator.prepare(reward_model)
 

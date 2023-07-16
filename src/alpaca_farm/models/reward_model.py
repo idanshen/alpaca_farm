@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import os.path
 
 import torch
 import transformers
@@ -48,7 +49,10 @@ class RewardModel(transformers.PreTrainedModel):
         self.reward_head = reward_head.to(next(self.backbone_model.parameters()).device)
         if pretrained_lora_weights is not None:
             print("load reward head from checkpoint")
-            self.reward_head = torch.load(pretrained_lora_weights + "/reward_head.pt")
+            if os.path.exists(pretrained_lora_weights + "/reward_head.pt"):
+                self.reward_head = torch.load(pretrained_lora_weights + "/reward_head.pt")
+            else:
+                print("reward head not found, use random initialization")
 
     def forward(self, input_ids, attention_mask=None, return_dict=True, **kwargs):
         # We only compute the rewards and don't compute the logistic regression loss in this function so that it's
