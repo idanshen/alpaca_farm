@@ -21,6 +21,7 @@ import pandas as pd
 import torch
 import transformers
 from torch.utils.data import Dataset
+import numpy as np
 
 from . import constants, logging, torch_ops, utils
 from .types import Tensor
@@ -414,6 +415,100 @@ class DataCollatorForBinaryRewardModelingDataset(object):
             choice=choice,
         )
 
+class SummaryQueryDataset(Dataset):
+    """News/Reddit summarization dataset that emits tokenized left-padded queries"""
+
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        prompt_dict: dict,
+        tokenizer: transformers.PreTrainedTokenizer,
+        query_len: int,
+        df_postprocessor: Optional[Callable] = None,
+        prompt_postprocessor: Optional[Callable] = None,
+        dataset_name: Optional[str] = None,
+    ):
+        super(SummaryQueryDataset, self).__init__()
+
+        if df_postprocessor is not None:
+            df = df_postprocessor(df)
+
+        instruction = "Generate a one-sentence summary of this post."
+
+        filter_fn = None
+        id_map_fn = None
+        input_preprocess_fn = None
+        if dataset_name == 'argilla/news-summary':
+            filter_fn = lambda x: x["text"] is not None and x["id"] is not None
+            id_map_fn = lambda x: {"id": x["id"]}
+            input_preprocess_fn = lambda x: "-".join(x["text"].replace("\n", " ").split("(Reuters) -")[1:]).strip()
+        elif dataset_name == 'openai/summarize_from_feedback':
+            filter_fn = lambda x: x["info"]["post"] is not None and x['info']["id"] is not None,
+            id_map_fn = lambda x: {"id": x["info"]["id"]}
+            input_preprocess_fn = lambda x: x["info"]["post"].replace("\n", " ")
+        else:
+            raise NotImplementedError(f'Filter, id map, and input preprocess functions for dataset {dataset_name} not implemented.')
+        
+        # remove empty instances
+        df_filtered = df.filter(
+            filter_fn,
+            batched=False
+        )
+
+        logger.warning(
+            f"Filtered out {len(df) - len(df_filtered)} instances out of {len(df)} that "
+            f"are empty."
+        )
+
+        # remove duplicate queries
+        def remove_duplicate(duplicated_dataset):
+            initial_list = duplicated_dataset.map(id_map_fn)
+            _ , unique_indices = np.unique(initial_list["id"], return_index=True, axis=0)
+            filtered_dataset = duplicated_dataset.select(unique_indices.tolist())
+            return filtered_dataset
+
+        df_deduplicated = remove_duplicate(df_filtered)
+
+        logger.warning(
+            f"Deduplicated {len(df_filtered) - len(df_deduplicated)} instances out of {len(df_filtered)} that "
+            f"are duplicates."
+        )
+ 
+        # format instruction and input into prompts
+        prompts = [format_prompt(example={'instruction': instruction, 'input': input_preprocess_fn(row)}, prompt_dict=prompt_dict, instruction=instruction) for row in df_deduplicated]
+        if prompt_postprocessor is not None:
+            prompts = [prompt_postprocessor(prompt) for prompt in prompts]
+
+        # tokenize and left-pad queries
+        queries = [tokenizer(prompt, return_tensors="pt", truncation=False).input_ids[0] for prompt in prompts]
+        
+        # filter based on query max length
+        filtered_queries = [query for query in queries if len(query) <= query_len]
+        logger.warning(
+            f"Filtered out {len(queries) - len(filtered_queries)} instances out of {len(queries)} that "
+            f"exceed length limit. These examples are not used for training, but will still be used in evaluation. "
+        )
+
+        queries = torch.stack(
+            [
+                torch_ops.left_pad(query, target_size=(query_len,), value=tokenizer.pad_token_id)
+                for query in filtered_queries
+            ]
+        )
+
+        self.queries = queries
+        self.query_attn_masks = queries.ne(tokenizer.pad_token_id).long()
+
+        # Auxiliary data.
+        self.prompts = prompts
+        self.list_dict_data = None
+
+    def __getitem__(self, i):
+        return dict(queries=self.queries[i], query_attn_masks=self.query_attn_masks[i])
+
+    def __len__(self):
+        return len(self.queries)
+    
 
 class QueryDataset(Dataset):
     """Dataset that emits tokenized left-padded queries."""
@@ -426,6 +521,7 @@ class QueryDataset(Dataset):
         query_len: int,
         df_postprocessor: Optional[Callable] = None,
         prompt_postprocessor: Optional[Callable] = None,
+        dataset_name: Optional[str] = None,
     ):
         super(QueryDataset, self).__init__()
 
