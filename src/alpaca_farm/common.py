@@ -151,6 +151,7 @@ def get_accelerate_model(
     lora_alpha: int = 16,
     lora_dropout: float = 0.05,
     pretrained_lora_weights: Optional[str] = None,
+    is_trainable: bool = True,
     **kwargs,
 ):
 
@@ -193,7 +194,7 @@ def get_accelerate_model(
         )
         if pretrained_lora_weights is not None:
             print("Loading adapters from checkpoint.")
-            model = PeftModel.from_pretrained(model, pretrained_lora_weights)
+            model = PeftModel.from_pretrained(model, pretrained_lora_weights, is_trainable=is_trainable)
             # # For Debugging
             # for name, p in model.named_parameters():
             #     if 'lora' in name:
