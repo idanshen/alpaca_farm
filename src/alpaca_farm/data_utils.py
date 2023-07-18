@@ -25,6 +25,9 @@ from .data_preprocessor import (
     DataCollatorForStackableDataset,
     QueryDataset,
     SummaryQueryDataset,
+    StackQueryDataset,
+    ReviewQueryDataset,
+
     SFTDataset,
     split_train_into_train_and_eval,
 )
@@ -101,9 +104,18 @@ def make_rl_data_module(
 ):
     prompt_dict = utils.jload(data_args.prompt_dict_path)
 
-    alpaca_instructions = datasets.load_dataset(data_args.dataset_path, data_args.dataset_name)
+    if data_args.dataset_path == 'imdb':
+        alpaca_instructions = datasets.load_dataset(data_args.dataset_path) # doesn't require separate path and name
+    else:
+        alpaca_instructions = datasets.load_dataset(data_args.dataset_path, data_args.dataset_name)
+
     if data_args.dataset_path == 'argilla/news-summary' :
         split_map = {"train": "test", "validation": "train"} # swap train and validation b/c more train dataset is quite small and validation is bigger
+        train_df = pd.concat([pd.DataFrame(alpaca_instructions[split_map[split]]) for split in data_args.train_splits])
+        eval_df = pd.concat([pd.DataFrame(alpaca_instructions[split_map[split]]) for split in data_args.eval_splits])
+    elif data_args.dataset_path in {'lvwerra/stack-exchange-paired', 'Anthropic/hh-rlhf'}:
+        # TODO: may need to load from offline data on disk for speed for stack exchange
+        split_map = {"train": "train", "validation": "test"}
         train_df = pd.concat([pd.DataFrame(alpaca_instructions[split_map[split]]) for split in data_args.train_splits])
         eval_df = pd.concat([pd.DataFrame(alpaca_instructions[split_map[split]]) for split in data_args.eval_splits])
     else:
@@ -121,6 +133,10 @@ def make_rl_data_module(
     # instantiate dataset class depending on the dataset
     if data_args.dataset_path in {'argilla/news-summary', 'openai/summarize_from_feedback'}:
         dataset_cls = SummaryQueryDataset
+    elif data_args.dataset_path == 'lvwerra/stack-exchange-paired':
+        dataset_cls = StackQueryDataset
+    elif data_args.dataset_path == 'imdb':
+        dataset_cls = ReviewQueryDataset
     else: 
         dataset_cls = QueryDataset
 
@@ -131,6 +147,7 @@ def make_rl_data_module(
         query_len=training_args.query_len,
         prompt_postprocessor=prompt_postprocessor,
         dataset_name=data_args.dataset_path,
+        split='train',
     )
     eval_dataset = dataset_cls(
         df=eval_df,
@@ -139,5 +156,6 @@ def make_rl_data_module(
         query_len=training_args.query_len,
         prompt_postprocessor=prompt_postprocessor,
         dataset_name=data_args.dataset_path,
+        split='val',
     )
     return dict(train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=DataCollatorForStackableDataset())

@@ -427,6 +427,7 @@ class SummaryQueryDataset(Dataset):
         df_postprocessor: Optional[Callable] = None,
         prompt_postprocessor: Optional[Callable] = None,
         dataset_name: Optional[str] = None,
+        split: Optional[str] = None,
     ):
         super(SummaryQueryDataset, self).__init__()
 
@@ -509,6 +510,234 @@ class SummaryQueryDataset(Dataset):
     def __len__(self):
         return len(self.queries)
     
+class StackQueryDataset(Dataset):
+    """StackOverflow Paired dataset that emits tokenized left-padded queries"""
+
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        prompt_dict: dict,
+        tokenizer: transformers.PreTrainedTokenizer,
+        query_len: int,
+        df_postprocessor: Optional[Callable] = None,
+        prompt_postprocessor: Optional[Callable] = None,
+        dataset_name: Optional[str] = None,
+        split: Optional[str] = None,
+    ):
+        super(StackQueryDataset, self).__init__()
+
+        if df_postprocessor is not None:
+            df = df_postprocessor(df)
+
+        filter_fn = lambda x: len(x["question"]) < 300
+        id_map_fn = lambda x: {"id": x['qid']}
+        input_preprocess_fn = lambda x: x["question"].replace("\n", " ")
+
+        # remove questions that are too long
+        df_filtered = df.filter(
+            filter_fn,
+            batched=False
+        )
+        
+        # choose subset of dataset
+        if split == 'train':
+            df_filtered = df_filtered.select(range(40000))
+        elif split == 'val':
+            df_filtered = df_filtered.select(range(1000))
+
+        logger.warning(
+            f"Filtered out {len(df) - len(df_filtered)} instances out of {len(df)} that "
+            f"are empty."
+        )
+
+        # remove duplicate queries
+        def remove_duplicate(duplicated_dataset):
+            initial_list = duplicated_dataset.map(id_map_fn)
+            _ , unique_indices = np.unique(initial_list["id"], return_index=True, axis=0)
+            filtered_dataset = duplicated_dataset.select(unique_indices.tolist())
+            return filtered_dataset
+
+        df_deduplicated = remove_duplicate(df_filtered)
+
+        logger.warning(
+            f"Deduplicated {len(df_filtered) - len(df_deduplicated)} instances out of {len(df_filtered)} that "
+            f"are duplicates."
+        )
+ 
+        # format instruction and input into prompts (no inputs here)
+        prompts = [format_prompt(example={'instruction': input_preprocess_fn(row), 'input': None}, prompt_dict=prompt_dict, instruction=instruction) for row in df_deduplicated]
+        if prompt_postprocessor is not None:
+            prompts = [prompt_postprocessor(prompt) for prompt in prompts]
+
+        # tokenize and left-pad queries
+        queries = [tokenizer(prompt, return_tensors="pt", truncation=False).input_ids[0] for prompt in prompts]
+        
+        # filter based on query max length (512 from reward soup)
+        filtered_queries = [query for query in queries if len(query) <= query_len]
+        logger.warning(
+            f"Filtered out {len(queries) - len(filtered_queries)} instances out of {len(queries)} that "
+            f"exceed length limit. These examples are not used for training, but will still be used in evaluation. "
+        )
+
+        queries = torch.stack(
+            [
+                torch_ops.left_pad(query, target_size=(query_len,), value=tokenizer.pad_token_id)
+                for query in filtered_queries
+            ]
+        )
+
+        self.queries = queries
+        self.query_attn_masks = queries.ne(tokenizer.pad_token_id).long()
+
+        # Auxiliary data.
+        self.prompts = prompts
+        self.list_dict_data = None
+
+    def __getitem__(self, i):
+        return dict(queries=self.queries[i], query_attn_masks=self.query_attn_masks[i])
+
+    def __len__(self):
+        return len(self.queries)
+
+class ReviewQueryDataset(Dataset):
+    """Movie review dataset that emits tokenized left-padded queries"""
+
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        prompt_dict: dict,
+        tokenizer: transformers.PreTrainedTokenizer,
+        query_len: int,
+        df_postprocessor: Optional[Callable] = None,
+        prompt_postprocessor: Optional[Callable] = None,
+        dataset_name: Optional[str] = 'imdb',
+        split: Optional[str] = None,
+    ):
+        super(ReviewQueryDataset, self).__init__()
+
+        if df_postprocessor is not None:
+            df = df_postprocessor(df)
+
+        instruction = 'Generate a movie review.'
+
+        filter_fn = lambda x: len(x['text']) > 200
+        input_preprocess_fn = lambda x: x['text']
+
+        # remove empty instances
+        df_filtered = df.filter(
+            filter_fn,
+            batched=False
+        )
+
+        logger.warning(
+            f"Filtered out {len(df) - len(df_filtered)} instances out of {len(df)} that "
+            f"are empty."
+        )
+ 
+        # format instruction and input into prompts
+        prompts = [format_prompt(example={'instruction': instruction, 'input': input_preprocess_fn(row)}, prompt_dict=prompt_dict, instruction=instruction) for row in df_filtered]
+        if prompt_postprocessor is not None:
+            prompts = [prompt_postprocessor(prompt) for prompt in prompts]
+
+        # tokenize and left-pad queries
+        queries = [tokenizer(prompt, return_tensors="pt", truncation=False).input_ids[0] for prompt in prompts]
+        
+        # filter based on query max length
+        filtered_queries = [query for query in queries if len(query) <= query_len]
+        logger.warning(
+            f"Filtered out {len(queries) - len(filtered_queries)} instances out of {len(queries)} that "
+            f"exceed length limit. These examples are not used for training, but will still be used in evaluation. "
+        )
+
+        queries = torch.stack(
+            [
+                torch_ops.left_pad(query, target_size=(query_len,), value=tokenizer.pad_token_id)
+                for query in filtered_queries
+            ]
+        )
+
+        self.queries = queries
+        self.query_attn_masks = queries.ne(tokenizer.pad_token_id).long()
+
+        # Auxiliary data.
+        self.prompts = prompts
+        self.list_dict_data = None
+
+    def __getitem__(self, i):
+        return dict(queries=self.queries[i], query_attn_masks=self.query_attn_masks[i])
+
+    def __len__(self):
+        return len(self.queries)
+
+class AssistantQueryDataset(Dataset):
+    """Assistant (HH RLHF) dataset that emits tokenized left-padded queries"""
+
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        prompt_dict: dict,
+        tokenizer: transformers.PreTrainedTokenizer,
+        query_len: int,
+        df_postprocessor: Optional[Callable] = None,
+        prompt_postprocessor: Optional[Callable] = None,
+        dataset_name: Optional[str] = None,
+        split: Optional[str] = None,
+    ):
+        super(AssistantQueryDataset, self).__init__()
+
+        if df_postprocessor is not None:
+            df = df_postprocessor(df)
+
+        instruction = 'Generate a movie review.'
+
+        filter_fn = lambda x: len(x['text']) > 200
+        input_preprocess_fn = lambda x: x['text']
+
+        # remove empty instances
+        df_filtered = df.filter(
+            filter_fn,
+            batched=False
+        )
+
+        logger.warning(
+            f"Filtered out {len(df) - len(df_filtered)} instances out of {len(df)} that "
+            f"are empty."
+        )
+ 
+        # format instruction and input into prompts
+        prompts = [format_prompt(example={'instruction': instruction, 'input': input_preprocess_fn(row)}, prompt_dict=prompt_dict, instruction=instruction) for row in df_filtered]
+        if prompt_postprocessor is not None:
+            prompts = [prompt_postprocessor(prompt) for prompt in prompts]
+
+        # tokenize and left-pad queries
+        queries = [tokenizer(prompt, return_tensors="pt", truncation=False).input_ids[0] for prompt in prompts]
+        
+        # filter based on query max length
+        filtered_queries = [query for query in queries if len(query) <= query_len]
+        logger.warning(
+            f"Filtered out {len(queries) - len(filtered_queries)} instances out of {len(queries)} that "
+            f"exceed length limit. These examples are not used for training, but will still be used in evaluation. "
+        )
+
+        queries = torch.stack(
+            [
+                torch_ops.left_pad(query, target_size=(query_len,), value=tokenizer.pad_token_id)
+                for query in filtered_queries
+            ]
+        )
+
+        self.queries = queries
+        self.query_attn_masks = queries.ne(tokenizer.pad_token_id).long()
+
+        # Auxiliary data.
+        self.prompts = prompts
+        self.list_dict_data = None
+
+    def __getitem__(self, i):
+        return dict(queries=self.queries[i], query_attn_masks=self.query_attn_masks[i])
+
+    def __len__(self):
+        return len(self.queries)
 
 class QueryDataset(Dataset):
     """Dataset that emits tokenized left-padded queries."""
@@ -522,6 +751,7 @@ class QueryDataset(Dataset):
         df_postprocessor: Optional[Callable] = None,
         prompt_postprocessor: Optional[Callable] = None,
         dataset_name: Optional[str] = None,
+        split: Optional[str] = None,
     ):
         super(QueryDataset, self).__init__()
 
