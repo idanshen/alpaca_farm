@@ -86,7 +86,7 @@ class TrainingArguments(transformers.TrainingArguments):
     cliprange_value: float = field(default=0.2)
     gamma: float = field(default=1.0)
     lam: float = field(default=1.0)
-    whiten_rewards: bool = field(default=True)
+    whiten_rewards: bool = field(default=False)
     td_one: bool = field(default=True)
     adam_epsilon: float = field(
         default=1e-5,

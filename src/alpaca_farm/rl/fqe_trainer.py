@@ -431,7 +431,6 @@ def make_models(
     # General strategy is to 1) create a model, 2) move it to target device / shard it, 3) then start next model,
     # as opposed to creating all needed models on CPU first, and separately moving / sharding each.
     # policy = rl_models.make_policy_with_base_model(args, make_generative_policy(), tokenizer)
-    # args.reward_model_checkpoint_dir = "/data/pulkitag/models/idanshen/alpaca_farm/examples/tmp_fqe/test_1/adapter_model"
     if args.init_value_with_reward:
         # Initialize value from reward model a la OAI.
         logger.warning("Initializing value model with reward model.")
@@ -444,8 +443,6 @@ def make_models(
     # We cast how respond should run. It's important the dtypes be consistent with training, since a bf16
     # fine-tuned model might not work with fp16 inference.
     # Cast step below must precede accelerator.prepare(), since wrapped model might not have `respond` method.
-    # if os.path.exists("/data/pulkitag/models/idanshen/alpaca_farm/examples/tmp_fqe/adapter_model/q_head.pt"):
-    #     qfunction_model.q_head.load_state_dict(torch.load("/data/pulkitag/models/idanshen/alpaca_farm/examples/tmp_fqe/adapter_model/q_head.pt").state_dict())
 
     qfunction_model = common.prepare_model_for_custom_fn(model=qfunction_model, fn_name="respond", accelerator=accelerator)
     qfunction_model = accelerator.prepare(qfunction_model)  # noqa
