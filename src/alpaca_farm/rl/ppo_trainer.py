@@ -412,7 +412,7 @@ def make_models(
     args,
     accelerator: accelerate.Accelerator,
 ) -> dict:
-    def make_generative_policy():
+    def make_generative_policy(is_trainable):
         base_model = common.get_accelerate_model(
             model_name_or_path=args.policy_model_name_or_path,
             pretrained_lora_weights=args.policy_model_checkpoint_dir,
@@ -424,11 +424,12 @@ def make_models(
             lora_alpha=args.lora_alpha,
             lora_dropout=args.lora_dropout,
             gradient_checkpointing=args.gradient_checkpointing,
-            flash_attn=args.flash_attn,)
-        utils.stable_resize_token_embeddings(base_model, len(tokenizer), checkpoint_dir=args.policy_model_checkpoint_dir)
+            flash_attn=args.flash_attn,
+            is_trainable=is_trainable,)
+        utils.stable_resize_token_embeddings(base_model, len(tokenizer), checkpoint_dir=args.policy_model_checkpoint_dir, train_embedding=False)
         return base_model
 
-    def make_reward_model():
+    def make_reward_model(is_trainable):
         reward_model_config = reward_model_module.RewardConfig(backbone_model_name_or_path=args.reward_model_name_or_path)
         base_reward_model = reward_model_module.RewardModel(
             transformer_cache_dir=args.transformer_cache_dir,
@@ -441,8 +442,9 @@ def make_models(
             gradient_checkpointing=args.gradient_checkpointing,
             flash_attn=args.flash_attn,
             pretrained_lora_weights=args.reward_model_checkpoint_dir,
+            is_trainable=is_trainable,
             config=reward_model_config,)
-        utils.stable_resize_token_embeddings(base_reward_model.backbone_model, len(tokenizer), checkpoint_dir=args.reward_model_checkpoint_dir)
+        utils.stable_resize_token_embeddings(base_reward_model.backbone_model, len(tokenizer), checkpoint_dir=args.reward_model_checkpoint_dir, train_embedding=False)
         return base_reward_model
 
     # Model construction below seems convoluted, but it's made to trade time for RAM efficiency.
@@ -450,15 +452,15 @@ def make_models(
     # Especially so for multiple processes on single node, each starting off with a copy of the model.
     # General strategy is to 1) create a model, 2) move it to target device / shard it, 3) then start next model,
     # as opposed to creating all needed models on CPU first, and separately moving / sharding each.
-    policy = rl_models.make_policy_with_base_model(args, make_generative_policy(), tokenizer)
+    policy = rl_models.make_policy_with_base_model(args, make_generative_policy(is_trainable=True), tokenizer)
     if args.init_value_with_reward:
         # Initialize value from reward model a la OAI.
         logger.warning("Initializing value model with reward model.")
-        value_model = rl_models.make_value_with_base_model(args, make_reward_model().backbone_model, tokenizer)
+        value_model = rl_models.make_value_with_base_model(args, make_reward_model(is_trainable=True).backbone_model, tokenizer)
     else:
         logger.warning("Initializing value model with policy model.")
         # Initialize value from policy. Works for sanity, but generally performs worse in instruction-following.
-        value_model = rl_models.make_value_with_base_model(args, make_generative_policy(), tokenizer)
+        value_model = rl_models.make_value_with_base_model(args, make_generative_policy(is_trainable=True), tokenizer)
     actor_critic = rl_models.ActorCritic(policy=policy, value_model=value_model)
     # We cast how respond should run. It's important the dtypes be consistent with training, since a bf16
     # fine-tuned model might not work with fp16 inference.
@@ -466,11 +468,11 @@ def make_models(
     actor_critic = common.prepare_model_for_custom_fn(model=actor_critic, fn_name="respond", accelerator=accelerator)
     actor_critic = accelerator.prepare(actor_critic)  # noqa
 
-    ref_policy = rl_models.make_policy_with_base_model(args, make_generative_policy(), tokenizer)
+    ref_policy = rl_models.make_policy_with_base_model(args, make_generative_policy(is_trainable=False), tokenizer)
     ref_policy.requires_grad_(False)
     ref_policy = accelerator.prepare(ref_policy)  # noqa
 
-    reward_model = make_reward_model()
+    reward_model = make_reward_model(is_trainable=False)
     reward_model.requires_grad_(False)
     reward_model = accelerator.prepare(reward_model)
 

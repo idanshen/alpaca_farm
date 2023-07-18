@@ -404,11 +404,11 @@ def make_models(
             gradient_checkpointing=args.gradient_checkpointing,
             flash_attn=args.flash_attn,
             is_trainable=is_trainable,)
-        utils.stable_resize_token_embeddings(base_model, len(tokenizer), checkpoint_dir=args.policy_model_checkpoint_dir)
+        utils.stable_resize_token_embeddings(base_model, len(tokenizer), checkpoint_dir=args.policy_model_checkpoint_dir, train_embedding=False)
         return base_model
 
     def make_reward_model(is_trainable):
-        reward_model_config = reward_model_module.RewardConfig(backbone_model_name_or_path=args.reward_model_name_or_path, train_embedding=False)
+        reward_model_config = reward_model_module.RewardConfig(backbone_model_name_or_path=args.reward_model_name_or_path)
         base_reward_model = reward_model_module.RewardModel(
             transformer_cache_dir=args.transformer_cache_dir,
             four_bits=args.four_bits,
