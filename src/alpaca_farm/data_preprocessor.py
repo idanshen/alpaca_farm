@@ -510,8 +510,8 @@ class SummaryQueryDataset(Dataset):
     def __len__(self):
         return len(self.queries)
     
-class StackQueryDataset(Dataset):
-    """StackOverflow Paired dataset that emits tokenized left-padded queries"""
+class NoInputQueryDataset(Dataset):
+    """No input dataset (StackOverflow Paired, Anthropic HH RLHF) that emits tokenized left-padded queries"""
 
     def __init__(
         self,
@@ -524,14 +524,24 @@ class StackQueryDataset(Dataset):
         dataset_name: Optional[str] = None,
         split: Optional[str] = None,
     ):
-        super(StackQueryDataset, self).__init__()
+        super(NoInputQueryDataset, self).__init__()
 
         if df_postprocessor is not None:
             df = df_postprocessor(df)
 
-        filter_fn = lambda x: len(x["question"]) < 300
-        id_map_fn = lambda x: {"id": x['qid']}
-        input_preprocess_fn = lambda x: x["question"].replace("\n", " ")
+        filter_fn = None
+        id_map_fn = None
+        input_preprocess_fn = None
+
+        if dataset_name == 'lvwerra/stack-exchange-paired':
+            filter_fn = lambda x: len(x["question"]) < 300
+            id_map_fn = lambda x: {"id": x['qid']}
+            input_preprocess_fn = lambda x: x["question"].replace("\n", " ")
+        elif dataset_name == 'Anthropic/hh-rlhf':
+            filter_fn = lambda x: x["chosen"] is not None
+            input_preprocess_fn = lambda x: x["chosen"].replace("\n", " ").split("Assistant: ")[0].split("Human: ")[1]
+        else:
+            raise NotImplementedError(f'Filter, id map, and input preprocess functions for dataset {dataset_name} not implemented.')
 
         # remove questions that are too long
         df_filtered = df.filter(
@@ -539,30 +549,33 @@ class StackQueryDataset(Dataset):
             batched=False
         )
         
-        # choose subset of dataset
-        if split == 'train':
-            df_filtered = df_filtered.select(range(40000))
-        elif split == 'val':
-            df_filtered = df_filtered.select(range(1000))
+        if dataset_name == 'lvwerra/stack-exchange-paired':
+            # choose subset of dataset
+            if split == 'train':
+                df_filtered = df_filtered.select(range(40000))
+            elif split == 'val':
+                df_filtered = df_filtered.select(range(1000))
 
         logger.warning(
             f"Filtered out {len(df) - len(df_filtered)} instances out of {len(df)} that "
             f"are empty."
         )
 
-        # remove duplicate queries
-        def remove_duplicate(duplicated_dataset):
-            initial_list = duplicated_dataset.map(id_map_fn)
-            _ , unique_indices = np.unique(initial_list["id"], return_index=True, axis=0)
-            filtered_dataset = duplicated_dataset.select(unique_indices.tolist())
-            return filtered_dataset
+        df_deduplicated = df_filtered
+        if id_map_fn is not None:
+            # remove duplicate queries
+            def remove_duplicate(duplicated_dataset):
+                initial_list = duplicated_dataset.map(id_map_fn)
+                _ , unique_indices = np.unique(initial_list["id"], return_index=True, axis=0)
+                filtered_dataset = duplicated_dataset.select(unique_indices.tolist())
+                return filtered_dataset
 
-        df_deduplicated = remove_duplicate(df_filtered)
+            df_deduplicated = remove_duplicate(df_filtered)
 
-        logger.warning(
-            f"Deduplicated {len(df_filtered) - len(df_deduplicated)} instances out of {len(df_filtered)} that "
-            f"are duplicates."
-        )
+            logger.warning(
+                f"Deduplicated {len(df_filtered) - len(df_deduplicated)} instances out of {len(df_filtered)} that "
+                f"are duplicates."
+            )
  
         # format instruction and input into prompts (no inputs here)
         prompts = [format_prompt(example={'instruction': input_preprocess_fn(row), 'input': None}, prompt_dict=prompt_dict, instruction=instruction) for row in df_deduplicated]

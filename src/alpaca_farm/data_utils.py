@@ -25,7 +25,7 @@ from .data_preprocessor import (
     DataCollatorForStackableDataset,
     QueryDataset,
     SummaryQueryDataset,
-    StackQueryDataset,
+    NoInputQueryDataset,
     ReviewQueryDataset,
 
     SFTDataset,
@@ -109,6 +109,7 @@ def make_rl_data_module(
     else:
         alpaca_instructions = datasets.load_dataset(data_args.dataset_path, data_args.dataset_name)
 
+    # TODO: may need to impose min and max lengths per task as they do in rewardsoup
     if data_args.dataset_path == 'argilla/news-summary' :
         split_map = {"train": "test", "validation": "train"} # swap train and validation b/c more train dataset is quite small and validation is bigger
         train_df = pd.concat([pd.DataFrame(alpaca_instructions[split_map[split]]) for split in data_args.train_splits])
@@ -133,8 +134,8 @@ def make_rl_data_module(
     # instantiate dataset class depending on the dataset
     if data_args.dataset_path in {'argilla/news-summary', 'openai/summarize_from_feedback'}:
         dataset_cls = SummaryQueryDataset
-    elif data_args.dataset_path == 'lvwerra/stack-exchange-paired':
-        dataset_cls = StackQueryDataset
+    elif data_args.dataset_path == {'lvwerra/stack-exchange-paired', 'Anthropic/hh-rlhf'}':
+        dataset_cls = NoInputQueryDataset
     elif data_args.dataset_path == 'imdb':
         dataset_cls = ReviewQueryDataset
     else: 
