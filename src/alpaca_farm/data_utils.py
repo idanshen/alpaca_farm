@@ -137,7 +137,7 @@ def make_rl_data_module(
     # instantiate dataset class depending on the dataset
     if data_args.dataset_path in {'argilla/news-summary', 'openai/summarize_from_feedback'}:
         dataset_cls = SummaryQueryDataset
-    elif data_args.dataset_path == {'lvwerra/stack-exchange-paired', 'Anthropic/hh-rlhf'}':
+    elif data_args.dataset_path == {'lvwerra/stack-exchange-paired', 'Anthropic/hh-rlhf'}:
         dataset_cls = NoInputQueryDataset
     elif data_args.dataset_path == 'imdb':
         dataset_cls = ReviewQueryDataset
