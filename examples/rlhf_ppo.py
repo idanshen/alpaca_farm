@@ -48,6 +48,8 @@ def main():
     )
     logger.warning(accelerator.state, main_process_only=False)  # Each process log their own state.
 
+    print('policy model name', training_args.policy_model_name_or_path)
+    print('reward model name', training_args.reward_model_name_or_path)
     tokenizer: transformers.PreTrainedTokenizer = make_tokenizer(args=training_args)
     model_module: dict = make_models(tokenizer=tokenizer, args=training_args, accelerator=accelerator)
     data_module: dict = data_utils.make_rl_data_module(
