@@ -59,7 +59,7 @@ pip install alpaca-farm
 To install from the latest commit on `main` branch, run
 
 ```bash
-pip install git+https://https://github.com/idanshen/alpaca_farm.git
+pip install git+https://github.com/idanshen/alpaca_farm.git
 ```
 
 To enable FlashAttention and other optimizations, install
