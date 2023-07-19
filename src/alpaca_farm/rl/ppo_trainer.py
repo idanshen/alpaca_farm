@@ -382,6 +382,7 @@ def _make_left_padded_tokenizer(
     cache_dir: AnyPathOrNone = constants.DEFAULT_CACHE_DIR,
     **kwargs,
 ) -> transformers.PreTrainedTokenizer:
+    print(f"Loading tokenizer from {model_name_or_path}")
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_name_or_path,
         cache_dir=cache_dir,
