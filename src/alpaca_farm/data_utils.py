@@ -13,6 +13,8 @@
 # limitations under the License.
 
 import os
+from typing import List
+
 import datasets
 import pandas as pd
 import transformers
@@ -101,10 +103,11 @@ def make_binary_reward_modeling_data_module(
 
 
 def make_rl_data_module(
-    tokenizer: transformers.PreTrainedTokenizer,
+    tokenizer: List[transformers.PreTrainedTokenizer],
     data_args,
     training_args,
 ):
+    tokenizer, _ = tokenizer # only use policy tokenizer for data module (not reward tokenizer)
     prompt_dict = utils.jload(data_args.prompt_dict_path)
 
     if data_args.dataset_path == 'imdb':

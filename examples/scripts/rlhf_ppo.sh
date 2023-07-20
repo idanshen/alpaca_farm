@@ -2,9 +2,12 @@ output_dir=$1
 run_name=$2
 reward_model_name_or_path=$3
 policy_model_name_or_path=$4
-kl_coef=${5:-0.0067}
+policy_checkpoint=$5
+kl_coef=${6:-0.0067}
+dataset_path=$7
+dataset_name=$8
 
-config_file="./examples/accelerate_configs/rlhf_ppo_fsdp_llama_8gpu.yaml"
+config_file="./examples/accelerate_configs/rlhf_ppo_fsdp_llama_2gpu.yaml"
 
 accelerate launch --config_file "${config_file}" examples/rlhf_ppo.py \
   --run_name "${run_name}" \
@@ -14,6 +17,9 @@ accelerate launch --config_file "${config_file}" examples/rlhf_ppo.py \
   --output_dir "${output_dir}" \
   --reward_model_name_or_path "${reward_model_name_or_path}" \
   --policy_model_name_or_path "${policy_model_name_or_path}" \
+  --policy_model_checkpoint_dir "${policy_checkpoint}" \
+  --dataset_path "${dataset_path}" \
+  --dataset_name "${dataset_name}" \
   --init_value_with_reward True \
   --rollout_batch_size 512 \
   --step_batch_size 256 \
