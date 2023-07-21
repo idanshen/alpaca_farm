@@ -370,7 +370,7 @@ class PPOTrainer(rl_trainer.RLTrainer):
 
             policy_tokenizer.save_pretrained(output_dir)
             reward_tokenizer.save_pretrained(output_dir)
-            
+
             # Good practice: save your training arguments together with the trained model
             torch.save(self.args, os.path.join(output_dir, constants.TRAINING_ARGS_NAME))
 
@@ -409,10 +409,10 @@ def make_tokenizer(args):
     )
     
     if policy_tokenizer.get_vocab() != reward_tokenizer.get_vocab():
-        logging.info('Policy and reward tokenizers are different.')
+        logger.info('Policy and reward tokenizers are different.')
         return [policy_tokenizer, reward_tokenizer]
     else:
-        logging.info('Policy and reward tokenizers are the same.')
+        logger.info('Policy and reward tokenizers are the same.')
         return [policy_tokenizer, policy_tokenizer]
         # raise ValueError("AlpacaFarm does not support different tokenizer for policy and reward models.")
 
