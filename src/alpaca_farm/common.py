@@ -34,6 +34,7 @@ from transformers.trainer import WEIGHTS_NAME, is_deepspeed_zero3_enabled
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
+    AutoModelForSequenceClassification,
     set_seed,
     Seq2SeqTrainer,
     BitsAndBytesConfig
@@ -202,6 +203,69 @@ def get_accelerate_model(
         else:
             print(f'adding LoRA modules...')
             model = get_peft_model(model, config)
+
+    if gradient_checkpointing:
+        if hasattr(model, "enable_input_require_grads"):
+            model.enable_input_require_grads()
+        else:
+            def make_inputs_require_grad(module, input, output):
+                output.requires_grad_(True)
+            model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
+
+    for name, module in model.named_modules():
+        if isinstance(module, LoraLayer):
+            if bfloat16:
+                module = module.to(torch.bfloat16)
+        if 'norm' in name:
+            module = module.to(torch.float32)
+        if 'lm_head' in name or 'embed_tokens' in name:
+            if hasattr(module, 'weight'):
+                if bfloat16 and module.weight.dtype == torch.float32:
+                    module = module.to(torch.bfloat16)
+    return model
+
+# same as get_accelerate_model but for sequence classification models that aren't lora-based
+def get_accelerate_sc_model(
+    model_name_or_path: str,
+    flash_attn: bool = False,
+    four_bits: bool = True,
+    bfloat16: bool = True,
+    gradient_checkpointing: bool = True,
+    transformer_cache_dir: Optional[str] = None,
+    is_trainable: bool = True,
+    **kwargs,
+):
+
+    # TODO: currently is_trainable is not used and these models aren't trainable, but can implement later
+
+    assert not flash_attn, "currently flash attention is not supported (need to verify with 4bit training)"
+
+    print(f'loading base model {model_name_or_path}...')
+    compute_dtype = (torch.bfloat16 if bfloat16 else torch.float32)
+    model = AutoModelForSequenceClassification.from_pretrained(
+        model_name_or_path,
+        load_in_4bit=four_bits,
+        device_map='auto',
+        quantization_config=BitsAndBytesConfig(
+            load_in_4bit=four_bits,
+            bnb_4bit_compute_dtype=compute_dtype,
+            bnb_4bit_use_double_quant=four_bits,
+            bnb_4bit_quant_type='nf4'  # by default, options are {'fp4', 'nf4'}
+        ),
+        torch_dtype=torch.bfloat16 if bfloat16 else torch.float32,
+        trust_remote_code=False,  # Set True to enable unpickling of arbitrary code in AutoModelForCausalLM#from_pretrained.
+        cache_dir=transformer_cache_dir,
+    )
+    print('This may throw some warnings if the model (older versions) do not contain linear layers')
+
+    setattr(model, 'model_parallel', True)
+    setattr(model, 'is_parallelizable', True)
+
+    model.config.torch_dtype = torch.bfloat16 if bfloat16 else torch.float32
+
+    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=gradient_checkpointing)
+    if gradient_checkpointing:
+        model.gradient_checkpointing_enable()
 
     if gradient_checkpointing:
         if hasattr(model, "enable_input_require_grads"):

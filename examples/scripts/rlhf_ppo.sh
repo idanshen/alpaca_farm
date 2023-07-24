@@ -7,7 +7,7 @@ kl_coef=${6:-0.0067}
 dataset_path=$7
 dataset_name=$8
 
-config_file="./examples/accelerate_configs/rlhf_ppo_fsdp_llama_1gpu.yaml"
+config_file="./examples/accelerate_configs/rlhf_ppo_fsdp_llama_2gpu.yaml"
 
 accelerate launch --config_file "${config_file}" examples/rlhf_ppo.py \
   --run_name "${run_name}" \

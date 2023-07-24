@@ -81,11 +81,50 @@ class RewardModel(transformers.PreTrainedModel):
     def gradient_checkpointing_enable(self):
         self.backbone_model.gradient_checkpointing_enable()
 
+
+class RewardNoLoraModel(transformers.PreTrainedModel):
+    config_class = RewardConfig
+    def __init__(self, config: RewardConfig, **kwargs):
+        super(RewardNoLoraModel, self).__init__(config)
+        print('Initializing reward model that is not lora based')
+
+        self.model = common.get_accelerate_sc_model(
+                    model_name_or_path=config.backbone_model_name_or_path,
+                    **kwargs)
+        
+        # function to apply to the output of the model
+        self.function_to_apply = None
+        if self.model.config.problem_type == "multi_label_classification" or self.model.config.num_labels == 1:
+            self.function_to_apply = torch.sigmoid
+        elif self.model.config.problem_type == "single_label_classification" or self.model.config.num_labels > 1:
+            self.function_to_apply = torch.softmax
+        elif hasattr(self.model.config, "function_to_apply") and self.function_to_apply is None:
+            self.function_to_apply = self.model.config.function_to_apply # TODO: not implemented yet
+        else:
+            self.function_to_apply = lambda x: x
+        
+    def forward(self, input_ids, attention_mask=None, return_dict=True, **kwargs):
+        # We only compute the rewards and don't compute the logistic regression loss in this function so that it's
+        # easier to use for later stages of reranking / RL training.
+        outputs = self.model(input_ids, attention_mask=attention_mask, return_dict=True, **kwargs)
+        rewards = self.function_to_apply(outputs.logits)
+        return RewardModelOutput(rewards=rewards) if return_dict else (rewards,)
+         
+    def get_input_embeddings(self) -> nn.Module:
+        return self.model.get_input_embeddings()
+
+    def get_output_embeddings(self) -> nn.Module:
+        return self.model.get_output_embeddings()
+
+    def set_input_embeddings(self, value: nn.Module):
+        self.model.set_input_embeddings(value)
+
+    def gradient_checkpointing_enable(self):
+        self.model.gradient_checkpointing_enable()
+
 class RewardPipeline():
     def __init__(self, config: RewardConfig, tokenizer: transformers.PreTrainedTokenizer,**kwargs):
-        super(RewardPipeline, self).__init__(config)
         print('Initializing reward pipeline from a pretrained model (no lora weights)')
-        
         self.pipeline = pipeline('text-classification', 
                                  model=config.backbone_model_name_or_path,
                                  device_map='auto',
