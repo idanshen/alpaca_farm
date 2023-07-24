@@ -169,13 +169,18 @@ class PPOTrainer(rl_trainer.RLTrainer):
             # 
             # PT, since the tokenizer always prepend
             #  <bos_token>. But the issue is local to post_reward, which isn't an issue if we don't penalize.
-            sequences, responses = tuple(
-                self.reward_tokenizer(text, return_tensors="pt", padding=True, truncation=True)
-                for text in (text_sequences, text_responses)
-            )
-            sequences, responses = common.prepare_inputs((sequences, responses), device=self.accelerator.device)
+            if isinstance(self.reward_model, transformers.PreTrainedModel): 
+                sequences, responses = tuple(
+                    self.reward_tokenizer(text, return_tensors="pt", padding=True, truncation=True)
+                    for text in (text_sequences, text_responses)
+                )
+                sequences, responses = common.prepare_inputs((sequences, responses), device=self.accelerator.device)
 
-            reward_outputs = self.reward_model(**sequences)
+                reward_outputs = self.reward_model(**sequences)
+            # if reward model is a pipeline, we need to pass in the text directly.
+            else:
+                reward_outputs = self.reward_model(text_sequences)
+                
             reward_outputs = self.post_reward(reward_outputs, responses.input_ids)
             rollouts_batch.update(reward_outputs)
 
@@ -442,19 +447,27 @@ def make_models(
 
     def make_reward_model(is_trainable):
         reward_model_config = reward_model_module.RewardConfig(backbone_model_name_or_path=args.reward_model_name_or_path)
-        base_reward_model = reward_model_module.RewardModel(
-            transformer_cache_dir=args.transformer_cache_dir,
-            four_bits=args.four_bits,
-            bfloat16=args.bfloat16,
-            use_lora=args.use_lora,
-            lora_r=args.lora_r,
-            lora_alpha=args.lora_alpha,
-            lora_dropout=args.lora_dropout,
-            gradient_checkpointing=args.gradient_checkpointing,
-            flash_attn=args.flash_attn,
-            pretrained_lora_weights=args.reward_model_checkpoint_dir,
-            is_trainable=is_trainable,
-            config=reward_model_config,)
+        
+        # for pretrained reward models that aren't lora-based
+        if reward_model_config.backbone_model_type != 'decapoda-research/llama-7b-hf':
+            base_reward_model = reward_model_module.RewardPipeline(
+                config=reward_model_config,
+                tokenizer=reward_tokenizer,
+            )
+        else:
+            base_reward_model = reward_model_module.RewardModel(
+                transformer_cache_dir=args.transformer_cache_dir,
+                four_bits=args.four_bits,
+                bfloat16=args.bfloat16,
+                use_lora=args.use_lora,
+                lora_r=args.lora_r,
+                lora_alpha=args.lora_alpha,
+                lora_dropout=args.lora_dropout,
+                gradient_checkpointing=args.gradient_checkpointing,
+                flash_attn=args.flash_attn,
+                pretrained_lora_weights=args.reward_model_checkpoint_dir,
+                is_trainable=is_trainable,
+                config=reward_model_config,)
         
         # only resize token embeddings if policy and reward tokenizers are the same
         if policy_tokenizer.get_vocab() == reward_tokenizer.get_vocab():
@@ -487,13 +500,13 @@ def make_models(
     ref_policy.requires_grad_(False)
     ref_policy = accelerator.prepare(ref_policy)  # noqa
 
-    reward_model = make_reward_model(is_trainable=False)
+    reward_model = make_reward_model(is_trainable=False, tokenizer=reward_tokenizer)
     reward_model.requires_grad_(False)
     reward_model = accelerator.prepare(reward_model)
 
     # TODO: This is a hack to get FSDP running. Remove in the future when this is fixed.
     if accelerator.distributed_type == accelerate.DistributedType.FSDP:
-        inputs = tokenizer("fsdp are you happy now??? :)" * 50, return_tensors="pt")
+        inputs = tokenizer[0]("fsdp are you happy now??? :)" * 50, return_tensors="pt")
         inputs = {key: value.to(accelerator.device) for key, value in inputs.items()}
         actor_critic(inputs["input_ids"], inputs["attention_mask"], inputs["input_ids"])
 

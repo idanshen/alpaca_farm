@@ -17,6 +17,7 @@ import torch
 import transformers
 from torch import Tensor, nn
 from transformers.utils.generic import ModelOutput
+from transformers import pipeline
 
 from .. import common
 
@@ -79,3 +80,20 @@ class RewardModel(transformers.PreTrainedModel):
 
     def gradient_checkpointing_enable(self):
         self.backbone_model.gradient_checkpointing_enable()
+
+class RewardPipeline():
+    def __init__(self, config: RewardConfig, tokenizer: transformers.PreTrainedTokenizer,**kwargs):
+        super(RewardPipeline, self).__init__(config)
+        print('Initializing reward pipeline from a pretrained model (no lora weights)')
+        
+        self.pipeline = pipeline('text-classification', 
+                                 model=config.backbone_model_name_or_path,
+                                 device_map='auto',
+                                 tokenizer=tokenizer
+                                 )
+
+    def forward(self, inputs, return_dict=True, **kwargs):
+        outputs = self.pipeline(inputs)
+        rewards = torch.tensor([output['score'] for output in outputs])
+
+        return RewardModelOutput(rewards=rewards) if return_dict else (rewards,)
