@@ -180,7 +180,7 @@ class PPOTrainer(rl_trainer.RLTrainer):
             # if reward model is a pipeline, we need to pass in the text directly.
             else:
                 reward_outputs = self.reward_model(text_sequences)
-                
+
             reward_outputs = self.post_reward(reward_outputs, responses.input_ids)
             rollouts_batch.update(reward_outputs)
 
@@ -449,7 +449,7 @@ def make_models(
         reward_model_config = reward_model_module.RewardConfig(backbone_model_name_or_path=args.reward_model_name_or_path)
         
         # for pretrained reward models that aren't lora-based
-        if reward_model_config.backbone_model_type != 'decapoda-research/llama-7b-hf':
+        if reward_model_config.backbone_model_name_or_path != 'decapoda-research/llama-7b-hf':
             base_reward_model = reward_model_module.RewardPipeline(
                 config=reward_model_config,
                 tokenizer=reward_tokenizer,
