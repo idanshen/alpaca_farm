@@ -482,6 +482,7 @@ def make_models(
     # as opposed to creating all needed models on CPU first, and separately moving / sharding each.
     policy = rl_models.make_policy_with_base_model(args, make_generative_policy(is_trainable=True), policy_tokenizer)
     
+    # TODO: this doesn't work with GPT2Model either b/c it doesn't contain the LM head
     if args.init_value_with_reward:
         # Initialize value from reward model a la OAI.
         logger.warning("Initializing value model with reward model.")
