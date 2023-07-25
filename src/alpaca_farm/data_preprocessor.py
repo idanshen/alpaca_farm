@@ -451,9 +451,9 @@ class SummaryQueryDataset(Dataset):
             raise NotImplementedError(f'Filter, id map, and input preprocess functions for dataset {dataset_name} not implemented.')
         
         # remove empty instances
-        df_filtered = df.filter(
+        df_filtered = df.apply(
             filter_fn,
-            batched=False
+            axis=1
         )
 
         logger.warning(
@@ -544,9 +544,9 @@ class NoInputQueryDataset(Dataset):
             raise NotImplementedError(f'Filter, id map, and input preprocess functions for dataset {dataset_name} not implemented.')
 
         # remove questions that are too long
-        df_filtered = df.filter(
+        df_filtered = df.apply(
             filter_fn,
-            batched=False
+            axis=1
         )
         
         if dataset_name == 'lvwerra/stack-exchange-paired':
@@ -637,9 +637,9 @@ class ReviewQueryDataset(Dataset):
         input_preprocess_fn = lambda x: x['text']
 
         # remove empty instances
-        df_filtered = df.filter(
+        df_filtered = df.apply(
             filter_fn,
-            batched=False
+            axis=1
         )
 
         logger.warning(
@@ -707,9 +707,9 @@ class AssistantQueryDataset(Dataset):
         input_preprocess_fn = lambda x: x['text']
 
         # remove empty instances
-        df_filtered = df.filter(
+        df_filtered = df.apply(
             filter_fn,
-            batched=False
+            axis=1
         )
 
         logger.warning(
