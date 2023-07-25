@@ -520,7 +520,7 @@ class NoInputQueryDataset(Dataset):
 
     def __init__(
         self,
-        df: pd.DataFrame,
+        df: datasets.Dataset,
         prompt_dict: dict,
         tokenizer: transformers.PreTrainedTokenizer,
         query_len: int,
@@ -549,10 +549,10 @@ class NoInputQueryDataset(Dataset):
             raise NotImplementedError(f'Filter, id map, and input preprocess functions for dataset {dataset_name} not implemented.')
 
         # remove questions that are too long
-        df_filtered = df[df.apply(
+        df_filtered = df.filter(
             filter_fn,
-            axis=1
-        )]
+            batched=False,
+        )
         
         if dataset_name == 'lvwerra/stack-exchange-paired':
             # choose subset of dataset
@@ -581,9 +581,11 @@ class NoInputQueryDataset(Dataset):
                 f"Deduplicated {len(df_filtered) - len(df_deduplicated)} instances out of {len(df_filtered)} that "
                 f"are duplicates."
             )
- 
+
+        df_deduplicated = pd.DataFrame(df_deduplicated)
+
         # format instruction and input into prompts (no inputs here)
-        prompts = [format_prompt(example={'instruction': input_preprocess_fn(row), 'input': None}, prompt_dict=prompt_dict, instruction=instruction) for row in df_deduplicated]
+        prompts = [format_prompt(example={'instruction': input_preprocess_fn(row), 'input': None}, prompt_dict=prompt_dict) for _, row in df_deduplicated.iterrows()]
         if prompt_postprocessor is not None:
             prompts = [prompt_postprocessor(prompt) for prompt in prompts]
 
@@ -642,18 +644,20 @@ class ReviewQueryDataset(Dataset):
         input_preprocess_fn = lambda x: x['text']
 
         # remove empty instances
-        df_filtered = df[df.apply(
+        df_filtered = df.filter(
             filter_fn,
-            axis=1
-        )]
+            batched=False,
+        )
 
         logger.warning(
             f"Filtered out {len(df) - len(df_filtered)} instances out of {len(df)} that "
             f"are empty."
         )
  
+        df_filtered = pd.DataFrame(df_filtered)
+
         # format instruction and input into prompts
-        prompts = [format_prompt(example={'instruction': instruction, 'input': input_preprocess_fn(row)}, prompt_dict=prompt_dict, instruction=instruction) for row in df_filtered]
+        prompts = [format_prompt(example={'instruction': instruction, 'input': input_preprocess_fn(row)}, prompt_dict=prompt_dict) for _, row in df_filtered.iterrows()]
         if prompt_postprocessor is not None:
             prompts = [prompt_postprocessor(prompt) for prompt in prompts]
 
@@ -712,18 +716,20 @@ class AssistantQueryDataset(Dataset):
         input_preprocess_fn = lambda x: x['text']
 
         # remove empty instances
-        df_filtered = df[df.apply(
+        df_filtered = df.filter(
             filter_fn,
-            axis=1
-        )]
+            batched=False,
+        )
 
         logger.warning(
             f"Filtered out {len(df) - len(df_filtered)} instances out of {len(df)} that "
             f"are empty."
         )
  
+        df_filtered = pd.DataFrame(df_filtered)
+        
         # format instruction and input into prompts
-        prompts = [format_prompt(example={'instruction': instruction, 'input': input_preprocess_fn(row)}, prompt_dict=prompt_dict, instruction=instruction) for row in df_filtered]
+        prompts = [format_prompt(example={'instruction': instruction, 'input': input_preprocess_fn(row)}, prompt_dict=prompt_dict) for _, row in df_filtered.iterrows()]
         if prompt_postprocessor is not None:
             prompts = [prompt_postprocessor(prompt) for prompt in prompts]
 
