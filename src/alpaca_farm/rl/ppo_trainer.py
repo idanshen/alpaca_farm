@@ -481,9 +481,11 @@ def make_models(
     # General strategy is to 1) create a model, 2) move it to target device / shard it, 3) then start next model,
     # as opposed to creating all needed models on CPU first, and separately moving / sharding each.
     policy = rl_models.make_policy_with_base_model(args, make_generative_policy(is_trainable=True), policy_tokenizer)
+    
     if args.init_value_with_reward:
         # Initialize value from reward model a la OAI.
         logger.warning("Initializing value model with reward model.")
+        # initializing value model with reward model won't work with encoder-decoder-based models
         value_model = rl_models.make_value_with_base_model(args, make_reward_model(is_trainable=True).backbone_model, reward_tokenizer)
     else:
         logger.warning("Initializing value model with policy model.")
@@ -500,7 +502,7 @@ def make_models(
     ref_policy.requires_grad_(False)
     ref_policy = accelerator.prepare(ref_policy)  # noqa
 
-    reward_model = make_reward_model(is_trainable=False, tokenizer=reward_tokenizer)
+    reward_model = make_reward_model(is_trainable=False)
     reward_model.requires_grad_(False)
     reward_model = accelerator.prepare(reward_model)
 

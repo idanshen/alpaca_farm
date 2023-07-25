@@ -1,5 +1,5 @@
 deepspeed_config: { }
-distributed_type: FSDP
+distributed_type: 'NO'
 downcast_bf16: 'yes'
 dynamo_backend: 'NO'
 fsdp_config:

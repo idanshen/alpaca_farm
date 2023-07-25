@@ -236,12 +236,16 @@ def get_accelerate_sc_model(
     **kwargs,
 ):
 
-    # TODO: currently is_trainable is not used and these models aren't trainable, but can implement later
-
     assert not flash_attn, "currently flash attention is not supported (need to verify with 4bit training)"
 
     print(f'loading base model {model_name_or_path}...')
     compute_dtype = (torch.bfloat16 if bfloat16 else torch.float32)
+    
+    # for older models, load_in_4bit=False b/c no linear layers
+    if model_name_or_path == 'Tristan/gpt2_reward_summarization':
+        four_bits = False
+        # may have to set quantization config to None as well
+
     model = AutoModelForSequenceClassification.from_pretrained(
         model_name_or_path,
         load_in_4bit=four_bits,
@@ -256,6 +260,11 @@ def get_accelerate_sc_model(
         trust_remote_code=False,  # Set True to enable unpickling of arbitrary code in AutoModelForCausalLM#from_pretrained.
         cache_dir=transformer_cache_dir,
     )
+
+    # turning gradients on/off depending on whether it is_trainable
+    for p in model.parameters():
+        p.requires_grad = is_trainable
+
     print('This may throw some warnings if the model (older versions) do not contain linear layers')
 
     setattr(model, 'model_parallel', True)
@@ -475,7 +484,7 @@ def get_transformer_hidden_size(model: transformers.PreTrainedModel):
             model = model.base_model.model
         else:
             model = model.base_model
-    if isinstance(model, transformers.GPT2LMHeadModel):
+    if isinstance(model, transformers.GPT2LMHeadModel) or isinstance(model, transformers.GPT2Model):
         hidden_size_attr_name = "n_embd"
     elif isinstance(model, transformers.OPTForCausalLM):
         hidden_size_attr_name = "word_embed_proj_dim"
