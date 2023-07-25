@@ -20,13 +20,13 @@ CUDA_VISIBLE_DEVICES=0 accelerate launch --config_file "${config_file}" examples
   --policy_model_checkpoint_dir "${policy_checkpoint}" \
   --dataset_path "${dataset_path}" \
   --dataset_name "${dataset_name}" \
-  --init_value_with_reward False \
+  --init_value_with_reward True \
   --rollout_batch_size 512 \
   --step_batch_size 256 \
   --learning_rate 1e-5 \
   --warmup_steps 5 \
   --kl_coef "${kl_coef}" \
-  --total_epochs 10 \
+  --total_epochs 1 \
   --flash_attn False \
   --prompt_dict_path "./examples/prompts/v0_inputs_noinputs.json" \
   --save_steps 20 \
