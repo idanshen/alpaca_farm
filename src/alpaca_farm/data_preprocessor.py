@@ -22,6 +22,7 @@ import torch
 import transformers
 from torch.utils.data import Dataset
 import numpy as np
+import datasets
 
 from . import constants, logging, torch_ops, utils
 from .types import Tensor
@@ -420,7 +421,7 @@ class SummaryQueryDataset(Dataset):
 
     def __init__(
         self,
-        df: pd.DataFrame,
+        df: datasets.Dataset,
         prompt_dict: dict,
         tokenizer: transformers.PreTrainedTokenizer,
         query_len: int,
@@ -443,17 +444,19 @@ class SummaryQueryDataset(Dataset):
             filter_fn = lambda x: x["text"] is not None and x["id"] is not None
             id_map_fn = lambda x: {"id": x["id"]}
             input_preprocess_fn = lambda x: "-".join(x["text"].replace("\n", " ").split("(Reuters) -")[1:]).strip()
+            # overriding max query length
         elif dataset_name == 'openai/summarize_from_feedback':
             filter_fn = lambda x: x["info"]["post"] is not None and x['info']["id"] is not None,
             id_map_fn = lambda x: {"id": x["info"]["id"]}
             input_preprocess_fn = lambda x: x["info"]["post"].replace("\n", " ")
+
         else:
             raise NotImplementedError(f'Filter, id map, and input preprocess functions for dataset {dataset_name} not implemented.')
         
         # remove empty instances
-        df_filtered = df.apply(
+        df_filtered = df.filter(
             filter_fn,
-            axis=1
+            batched=False,
         )
 
         logger.warning(
@@ -474,9 +477,11 @@ class SummaryQueryDataset(Dataset):
             f"Deduplicated {len(df_filtered) - len(df_deduplicated)} instances out of {len(df_filtered)} that "
             f"are duplicates."
         )
- 
+
+        df_deduplicated = pd.DataFrame(df_deduplicated)
+
         # format instruction and input into prompts
-        prompts = [format_prompt(example={'instruction': instruction, 'input': input_preprocess_fn(row)}, prompt_dict=prompt_dict, instruction=instruction) for row in df_deduplicated]
+        prompts = [format_prompt(example={'instruction': instruction, 'input': input_preprocess_fn(row)}, prompt_dict=prompt_dict) for _, row in df_deduplicated.iterrows()]
         if prompt_postprocessor is not None:
             prompts = [prompt_postprocessor(prompt) for prompt in prompts]
 
@@ -544,10 +549,10 @@ class NoInputQueryDataset(Dataset):
             raise NotImplementedError(f'Filter, id map, and input preprocess functions for dataset {dataset_name} not implemented.')
 
         # remove questions that are too long
-        df_filtered = df.apply(
+        df_filtered = df[df.apply(
             filter_fn,
             axis=1
-        )
+        )]
         
         if dataset_name == 'lvwerra/stack-exchange-paired':
             # choose subset of dataset
@@ -637,10 +642,10 @@ class ReviewQueryDataset(Dataset):
         input_preprocess_fn = lambda x: x['text']
 
         # remove empty instances
-        df_filtered = df.apply(
+        df_filtered = df[df.apply(
             filter_fn,
             axis=1
-        )
+        )]
 
         logger.warning(
             f"Filtered out {len(df) - len(df_filtered)} instances out of {len(df)} that "
@@ -707,10 +712,10 @@ class AssistantQueryDataset(Dataset):
         input_preprocess_fn = lambda x: x['text']
 
         # remove empty instances
-        df_filtered = df.apply(
+        df_filtered = df[df.apply(
             filter_fn,
             axis=1
-        )
+        )]
 
         logger.warning(
             f"Filtered out {len(df) - len(df_filtered)} instances out of {len(df)} that "

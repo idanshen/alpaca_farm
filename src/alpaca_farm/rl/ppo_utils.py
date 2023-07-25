@@ -126,7 +126,7 @@ class TrainingArguments(transformers.TrainingArguments):
             "Use fast tokenizer only if you can live with that."
         },
     )
-    static_dataset: bool = field(default=True, metadata={"help": "If True, uses static dataset the contains respones."})
+    static_dataset: bool = field(default=False, metadata={"help": "If True, uses static dataset the contains respones."})
     static_dataset_path: str = field(default="/data/pulkitag/models/idanshen/alpaca_farm/spf/test_3/responses/output.json", metadata={"help": "Path to static dataset."})
 
     def __post_init__(self):

@@ -118,13 +118,19 @@ def make_rl_data_module(
     # TODO: may need to impose min and max lengths per task as they do in rewardsoup
     if data_args.dataset_path == 'argilla/news-summary' :
         split_map = {"train": "test", "validation": "train"} # swap train and validation b/c more train dataset is quite small and validation is bigger
-        train_df = pd.concat([pd.DataFrame(alpaca_instructions[split_map[split]]) for split in data_args.train_splits])
-        eval_df = pd.concat([pd.DataFrame(alpaca_instructions[split_map[split]]) for split in data_args.eval_splits])
+        train_split = split_map[data_args.train_splits[0]]
+        eval_split = split_map[data_args.eval_splits[0]]
+        train_df = alpaca_instructions[train_split]
+        eval_df = alpaca_instructions[eval_split]
     elif data_args.dataset_path in {'lvwerra/stack-exchange-paired', 'Anthropic/hh-rlhf'}:
         # TODO: may need to load from offline data on disk for speed for stack exchange
         split_map = {"train": "train", "validation": "test"}
-        train_df = pd.concat([pd.DataFrame(alpaca_instructions[split_map[split]]) for split in data_args.train_splits])
-        eval_df = pd.concat([pd.DataFrame(alpaca_instructions[split_map[split]]) for split in data_args.eval_splits])
+        train_split = split_map[data_args.train_splits[0]]
+        eval_split = split_map[data_args.eval_splits[0]]
+        train_df = alpaca_instructions[train_split]
+        eval_df = alpaca_instructions[eval_split]
+        # train_df = pd.concat([pd.DataFrame(alpaca_instructions[split_map[split]]) for split in data_args.train_splits])
+        # eval_df = pd.concat([pd.DataFrame(alpaca_instructions[split_map[split]]) for split in data_args.eval_splits])
     else:
         train_df = pd.concat([pd.DataFrame(alpaca_instructions[split]) for split in data_args.train_splits])
         eval_df = pd.concat([pd.DataFrame(alpaca_instructions[split]) for split in data_args.eval_splits])

@@ -9,7 +9,7 @@ dataset_name=$8
 
 config_file="./examples/accelerate_configs/rlhf_ppo_fsdp_llama_1gpu.yaml"
 
-accelerate launch --config_file "${config_file}" examples/rlhf_ppo.py \
+CUDA_VISIBLE_DEVICES=0 accelerate launch --config_file "${config_file}" examples/rlhf_ppo.py \
   --run_name "${run_name}" \
   --step_per_device_batch_size 2 \
   --rollout_per_device_batch_size 32 \
@@ -29,4 +29,7 @@ accelerate launch --config_file "${config_file}" examples/rlhf_ppo.py \
   --total_epochs 10 \
   --flash_attn False \
   --prompt_dict_path "./examples/prompts/v0_inputs_noinputs.json" \
-  --save_steps 20
+  --save_steps 20 \
+  --train_splits "train" \
+  --eval_splits "validation" \
+  --query_len 1500
