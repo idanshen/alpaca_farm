@@ -109,7 +109,7 @@ class RewardNoLoraModel(transformers.PreTrainedModel):
         # We only compute the rewards and don't compute the logistic regression loss in this function so that it's
         # easier to use for later stages of reranking / RL training.
         outputs = self.model(input_ids, attention_mask=attention_mask, return_dict=True, **kwargs)
-        rewards = self.function_to_apply(outputs.logits)
+        rewards = self.function_to_apply(outputs.logits).squeeze(-1)
         return RewardModelOutput(rewards=rewards) if return_dict else (rewards,)
          
     def get_input_embeddings(self) -> nn.Module:

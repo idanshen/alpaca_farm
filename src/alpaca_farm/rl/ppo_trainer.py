@@ -76,7 +76,7 @@ class PPOTrainer(rl_trainer.RLTrainer):
         non_score_rewards = -self.kl_ctl.value * kl
         shaped_rewards = non_score_rewards.clone()
         # This introduces a small index off by one bug if pad_token_id == eos_token_id.
-        terminal_positions = (responses != self.tokenizer.pad_token_id).sum(dim=1) - 1
+        terminal_positions = (responses != self.reward_tokenizer.pad_token_id).sum(dim=1) - 1 # TODO (seungwook): make sure this is supposed to use reward tokenizer
         shaped_rewards[list(range(rewards.size(0))), terminal_positions] += rewards
         return dict(shaped_rewards=shaped_rewards, non_score_rewards=non_score_rewards, kl=kl)
 
@@ -174,7 +174,6 @@ class PPOTrainer(rl_trainer.RLTrainer):
                 for text in (text_sequences, text_responses)
             )
             sequences, responses = common.prepare_inputs((sequences, responses), device=self.accelerator.device)
-
             reward_outputs = self.reward_model(**sequences)
 
             reward_outputs = self.post_reward(reward_outputs, responses.input_ids)
@@ -385,6 +384,7 @@ class PPOTrainer(rl_trainer.RLTrainer):
 def _make_left_padded_tokenizer(
     model_name_or_path: AnyPath,
     cache_dir: AnyPathOrNone = constants.DEFAULT_CACHE_DIR,
+    add_pad: bool = True,
     **kwargs,
 ) -> transformers.PreTrainedTokenizer:
     print(f"Loading tokenizer from {model_name_or_path}")
@@ -395,20 +395,28 @@ def _make_left_padded_tokenizer(
         **kwargs,
     )
     if tokenizer.pad_token is None:
-        tokenizer.add_special_tokens(dict(pad_token=constants.DEFAULT_PAD_TOKEN))
+        if add_pad:
+            tokenizer.add_special_tokens(dict(pad_token=constants.DEFAULT_PAD_TOKEN))
+        else: 
+            tokenizer.pad_token = tokenizer.eos_token # given correct attention masks in forward, shouldn't matter for reward model
+        
     return tokenizer
 
 
 def make_tokenizer(args):
+    is_policy_reward_same = args.policy_model_name_or_path == args.reward_model_name_or_path
+
     # policy_tokenizer left pads, since the policy requires batch decoding.
     policy_tokenizer = _make_left_padded_tokenizer(
         args.policy_model_name_or_path, cache_dir=args.cache_dir, use_fast=args.use_fast_tokenizer
     )
     # reward_tokenizer left pads, since we need the embedding of the right most non-pad token.
     reward_tokenizer = _make_left_padded_tokenizer(
-        args.reward_model_name_or_path, cache_dir=args.cache_dir, use_fast=args.use_fast_tokenizer
+        args.reward_model_name_or_path, cache_dir=args.cache_dir, use_fast=args.use_fast_tokenizer, add_pad=is_policy_reward_same,
     )
     
+    # import IPython
+    # IPython.embed()
     if policy_tokenizer.get_vocab() != reward_tokenizer.get_vocab():
         logger.info('Policy and reward tokenizers are different.')
         return [policy_tokenizer, reward_tokenizer]

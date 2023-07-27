@@ -33,3 +33,9 @@ CUDA_VISIBLE_DEVICES=0 accelerate launch --config_file "${config_file}" examples
   --train_splits "train" \
   --eval_splits "validation" \
   --query_len 1500
+
+  # --step_per_device_batch_size 2 \
+  # --rollout_per_device_batch_size 32 \
+  # --per_device_eval_batch_size 32 \
+  # --rollout_batch_size 512 \
+  # --step_batch_size 256 \
