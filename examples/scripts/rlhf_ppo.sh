@@ -21,15 +21,16 @@ CUDA_VISIBLE_DEVICES=0 accelerate launch --config_file "${config_file}" examples
   --dataset_path "${dataset_path}" \
   --dataset_name "${dataset_name}" \
   --init_value_with_reward False \
-  --rollout_batch_size 512 \
-  --step_batch_size 256 \
-  --learning_rate 1e-5 \
+  --rollout_batch_size 256 \
+  --step_batch_size 128 \
+  --learning_rate 1.41e-5 \
   --warmup_steps 5 \
   --kl_coef "${kl_coef}" \
   --total_epochs 1 \
   --flash_attn False \
   --prompt_dict_path "./examples/prompts/v0_inputs_noinputs.json" \
-  --save_steps 20 \
+  --eval_steps 2 \
+  --save_steps 5 \
   --train_splits "train" \
   --eval_splits "validation" \
   --query_len 1500
