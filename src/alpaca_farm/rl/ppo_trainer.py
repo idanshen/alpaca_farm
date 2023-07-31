@@ -173,6 +173,8 @@ class PPOTrainer(rl_trainer.RLTrainer):
                 self.reward_tokenizer(text, return_tensors="pt", padding=True, truncation=True)
                 for text in (text_sequences, text_responses)
             )
+            del text_sequences, text_responses  # Prevent mistakes.
+            
             sequences, responses = common.prepare_inputs((sequences, responses), device=self.accelerator.device)
             reward_outputs = self.reward_model(**sequences)
 
