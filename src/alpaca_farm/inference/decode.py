@@ -360,27 +360,32 @@ def decode_prompts_with_huggingface(
 class QLogitsProcessor(transformers.LogitsProcessor):
     """
     A hack class to process logits to integrate learned Q values
+
+    (currently assumes that the tokenizer for the policy and q model are the same)
     """
-    def __init__(self, q_model: transformers.PreTrainedModel, q_tokenizer: transformers.PreTrainedTokenizer, policy_tokenizer: transformers.PreTrainedTokenizer, ):
+    def __init__(self, q_model: transformers.PreTrainedModel):
         # call super init
         super().__init__()
         self.q_model = q_model
-        self.q_tokenizer = q_tokenizer
-        self.policy_tokenizer = policy_tokenizer
+        # self.q_tokenizer = q_tokenizer
+        # self.policy_tokenizer = policy_tokenizer
     
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
-        inputs = self.policy_tokenizer.batch_decode(input_ids, skip_special_tokens=True)
+        # inputs = self.policy_tokenizer.batch_decode(input_ids, skip_special_tokens=True)
         
         # create candidate inputs using the vocabulary of policy_tokenizer (maybe smarter ways of pruning using the topk logits?)
         # or can we cache the original inputs and use the hidden states to more efficiently calculate the q values?
-        candidate_inputs = []
-        for i in inputs:
-            candidate_inputs += [i + " " + j for j in self.policy_tokenizer.get_vocab().keys()]
+        # candidate_inputs = []
+        # for i in inputs:
+        #     candidate_inputs += [i + " " + j for j in self.policy_tokenizer.get_vocab().keys()]
 
-        # tokenize the candidate inputs using the q_tokenizer
-        candidate_inputs = self.q_tokenizer(candidate_inputs, padding=True, return_tensors="pt")
+        # # tokenize the candidate inputs using the q_tokenizer
+        # candidate_inputs = self.q_tokenizer(candidate_inputs, padding=True, return_tensors="pt")
 
-        # calculate the q values
-        q_values = self.q_model(**candidate_inputs) # TODO: fix taking the values out of the return dict and re-arrange the scores according to the correct index of the vocab
+        # # calculate the q values
+        # q_values = self.q_model(**candidate_inputs) # TODO: fix taking the values out of the return dict and re-arrange the scores according to the correct index of the vocab
         
+
+        q_values = self.q_model(input_ids) # need to pass in mask as well?
+
         return scores + q_values
