@@ -117,7 +117,7 @@ class TrainingArguments(transformers.TrainingArguments):
         },
     )
     four_bits: bool = field(default=True, metadata={"help": "If True, uses 4-bit quantization."})
-    bfloat16: bool = field(default=True, metadata={"help": "If True, uses bfloat16 quantization. If lora and four_bits are True, bfloat16 is used for the lora weights."})
+    bfloat16: bool = field(default=False, metadata={"help": "If True, uses bfloat16 quantization. If lora and four_bits are True, bfloat16 is used for the lora weights."})
     use_lora: bool = field(default=True, metadata={"help": "If True, uses LoRA."})
     lora_r: int = field(default=60, metadata={"help": "LoRA local rank parameter."})
     lora_alpha: float = field(default=16, metadata={"help": "LoRA alpha parameter."})
@@ -151,7 +151,7 @@ def main():
             lora_dropout=training_args.lora_dropout,
             gradient_checkpointing=training_args.gradient_checkpointing,
             flash_attn=training_args.flash_attn,)
-        common.let_model_save_mem_when_zero_grad(model)
+    common.let_model_save_mem_when_zero_grad(model)
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_args.model_name_or_path,
@@ -161,18 +161,7 @@ def main():
         use_fast=training_args.use_fast_tokenizer,
     )
     tokenizer.padding = training_args.padding
-
-    # Collect special tokens. Only add if non-existent.
-    special_tokens_dict = dict(additional_special_tokens=[])
-    if tokenizer.pad_token is None:
-        special_tokens_dict["pad_token"] = training_args.pad_token
-    if tokenizer.eos_token is None:
-        special_tokens_dict["eos_token"] = constants.DEFAULT_EOS_TOKEN
-    if tokenizer.bos_token is None:
-        special_tokens_dict["bos_token"] = constants.DEFAULT_BOS_TOKEN
-    if tokenizer.unk_token is None:
-        special_tokens_dict["unk_token"] = constants.DEFAULT_UNK_TOKEN
-    utils.stable_resize_token_embeddings_and_tokenizer(model, tokenizer, special_tokens_dict)
+    tokenizer.pad_token_id = 0
 
     data_module: dict = data_utils.make_supervised_data_module(
         tokenizer=tokenizer,

@@ -44,10 +44,13 @@ class RewardModel(transformers.PreTrainedModel):
             model_name_or_path=config.backbone_model_name_or_path,
             pretrained_lora_weights=pretrained_lora_weights,
             **kwargs)
+        self.model_parallel = True
+        self.is_parallelizable = True
+
         hidden_size = common.get_transformer_hidden_size(self.backbone_model)
         reward_head = nn.Linear(hidden_size, 1)
         torch.nn.init.zeros_(reward_head.bias)
-        self.reward_head = reward_head.to(next(self.backbone_model.parameters()).device)
+        self.reward_head = reward_head.to(0)
         if pretrained_lora_weights is not None:
             print("load reward head from checkpoint")
             if os.path.exists(pretrained_lora_weights + "/reward_head.pt"):
