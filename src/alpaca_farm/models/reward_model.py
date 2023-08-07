@@ -45,6 +45,9 @@ class RewardModel(transformers.PreTrainedModel):
             pretrained_lora_weights=pretrained_lora_weights,
             **kwargs)
 
+        self.model_parallel = True
+        self.is_parallelizable = True
+
         hidden_size = common.get_transformer_hidden_size(self.backbone_model)
         reward_head = nn.Linear(hidden_size, 1)
         torch.nn.init.zeros_(reward_head.bias)
@@ -95,6 +98,9 @@ class RewardNoLoraModel(transformers.PreTrainedModel):
         self.backbone_model = self.model.transformer # TODO: this may only work for Tristan/GPT2 model
         self.reward_head = self.model.score # TODO: this may only work for Tristan/GPT2 model
         
+        self.model_parallel = True
+        self.is_parallelizable = True
+
         # function to apply to the output of the model
         self.function_to_apply = None
         if self.model.config.problem_type == "multi_label_classification" or self.model.config.num_labels == 1:
