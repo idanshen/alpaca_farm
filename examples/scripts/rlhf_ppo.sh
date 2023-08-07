@@ -7,9 +7,9 @@ kl_coef=${6:-0.0067}
 dataset_path=$7
 dataset_name=$8
 
-config_file="./examples/accelerate_configs/rlhf_ppo_fsdp_llama_1gpu.yaml"
+config_file="./examples/accelerate_configs/rlhf_ppo_npp_llama.yaml"
 
-CUDA_VISIBLE_DEVICES=0 accelerate launch --config_file "${config_file}" examples/rlhf_ppo.py \
+CUDA_VISIBLE_DEVICES=4,5,6,7 accelerate launch --config_file "${config_file}" examples/rlhf_ppo.py \
   --run_name "${run_name}" \
   --step_per_device_batch_size 2 \
   --rollout_per_device_batch_size 32 \
@@ -21,8 +21,8 @@ CUDA_VISIBLE_DEVICES=0 accelerate launch --config_file "${config_file}" examples
   --dataset_path "${dataset_path}" \
   --dataset_name "${dataset_name}" \
   --init_value_with_reward False \
-  --rollout_batch_size 256 \
-  --step_batch_size 128 \
+  --rollout_batch_size 512 \
+  --step_batch_size 256 \
   --learning_rate 1.41e-5 \
   --warmup_steps 5 \
   --kl_coef "${kl_coef}" \
