@@ -210,6 +210,7 @@ class RLTrainer(object):
         # TODO: unhardcode inference args.
         logger.warning(f"Start evaluation at step: {step_idx}", main_process_only=True)
 
+        # TODO (seungwook): fix evaluation code here
         prompts, list_dict_data = self.eval_dataset.prompts, self.eval_dataset.list_dict_data
         if any(item is None for item in (prompts, list_dict_data)):
             logger.warning("No evaluation data, skipping evaluation.", main_process_only=True)
@@ -223,7 +224,7 @@ class RLTrainer(object):
 
         # Start evaluation.
         self.policy.eval()
-        self._make_fsdp_happy()
+        # self._make_fsdp_happy()
         if unwrapped_policy is None:
             unwrapped_policy = self.accelerator.unwrap_model(self.policy, keep_fp32_wrapper=True)
             unwrapped_policy = unwrapped_policy.policy.base_model
