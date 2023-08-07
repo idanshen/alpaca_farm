@@ -243,24 +243,26 @@ def get_accelerate_sc_model(
     assert not flash_attn, "currently flash attention is not supported (need to verify with 4bit training)"
 
     print(f'loading base model {model_name_or_path}...')
-    compute_dtype = (torch.bfloat16 if bfloat16 else torch.float32)
-    
+    compute_dtype = (torch.bfloat16 if bfloat16 else torch.float16)
+    q_config = BitsAndBytesConfig(
+            load_in_4bit=four_bits,
+            bnb_4bit_compute_dtype=compute_dtype,
+            bnb_4bit_use_double_quant=four_bits,
+            bnb_4bit_quant_type='nf4'  # by default, options are {'fp4', 'nf4'}
+            )
+
     # for older models, load_in_4bit=False b/c no linear layers
     if model_name_or_path == 'Tristan/gpt2_reward_summarization':
         four_bits = False
         # may have to set quantization config to None as well
+        q_config = None
 
     model = AutoModelForSequenceClassification.from_pretrained(
         model_name_or_path,
         load_in_4bit=four_bits,
         device_map='auto',
-        quantization_config=BitsAndBytesConfig(
-            load_in_4bit=four_bits,
-            bnb_4bit_compute_dtype=compute_dtype,
-            bnb_4bit_use_double_quant=four_bits,
-            bnb_4bit_quant_type='nf4'  # by default, options are {'fp4', 'nf4'}
-        ),
-        torch_dtype=torch.bfloat16 if bfloat16 else torch.float32,
+        quantization_config=q_config,
+        torch_dtype=torch.bfloat16 if bfloat16 else torch.float16,
         trust_remote_code=False,  # Set True to enable unpickling of arbitrary code in AutoModelForCausalLM#from_pretrained.
         cache_dir=transformer_cache_dir,
     )
