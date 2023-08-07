@@ -227,7 +227,7 @@ class RLTrainer(object):
 
         # Start evaluation.
         self.policy.eval()
-        # self._make_fsdp_happy()
+        self._make_fsdp_happy() # we can keep this b/c it automatically checks if fsdp or not
         if unwrapped_policy is None:
             unwrapped_policy = self.accelerator.unwrap_model(self.policy, keep_fp32_wrapper=True)
             unwrapped_policy = unwrapped_policy.policy.base_model
