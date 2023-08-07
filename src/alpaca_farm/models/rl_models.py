@@ -39,6 +39,8 @@ class Policy(nn.Module, abc.ABC):
         self.args = args
         self.base_model = base_model
         self.base_tokenizer = base_tokenizer
+        self.model_parallel = True
+        self.is_parallelizable = True
 
     @abc.abstractmethod
     def forward(
@@ -124,7 +126,7 @@ class AutoregressivePolicy(Policy):
             top_k=0,
             temperature=temperature,
             num_return_sequences=num_return_sequences,
-            synced_gpus=False,
+            # synced_gpus=True,
         )
         responses = torch_ops.right_pad(
             sequences[:, queries.size(1) :],
@@ -146,7 +148,9 @@ class Value(nn.Module, abc.ABC):
         value_head = torch.nn.Linear(hidden_size, 1)
         value_head.weight.data.zero_()
         value_head.bias.data.zero_()
-        self.value_head = value_head.to(next(base_model.parameters()).device)
+        self.value_head = value_head.to(list(base_model.parameters())[-1].device)
+        self.model_parallel = True
+        self.is_parallelizable = True
 
     @abc.abstractmethod
     def forward(self, queries: Tensor, query_attn_masks: Tensor, responses: Tensor) -> Dict[str, Tensor]:
@@ -177,6 +181,8 @@ class ActorCritic(nn.Module):
         super(ActorCritic, self).__init__()
         self.policy = policy
         self.value_model = value_model
+        self.model_parallel = True
+        self.is_parallelizable = True
 
     def forward(
         self,
@@ -209,7 +215,9 @@ class Qfunction(nn.Module, abc.ABC):
         q_head = torch.nn.Linear(hidden_size, len(base_tokenizer))
         q_head.weight.data.zero_()
         q_head.bias.data.zero_()
-        self.q_head = q_head.to(next(base_model.parameters()).device, dtype=torch.bfloat16)
+        self.q_head = q_head.to(0, dtype=torch.float32)
+        self.model_parallel = True
+        self.is_parallelizable = True
 
     @abc.abstractmethod
     def forward(self, queries: Tensor, query_attn_masks: Tensor, responses: Tensor) -> Dict[str, Tensor]:

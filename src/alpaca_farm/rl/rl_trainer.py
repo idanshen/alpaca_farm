@@ -93,7 +93,7 @@ class RLTrainer(object):
 
     @torch.inference_mode()
     def _compute_grad_norm(self):
-        grad_norm = torch.stack([p.grad.norm(2) for p in self.optimizable_params]).norm(2)
+        grad_norm = torch.stack([p.grad.norm(2).to(0) for p in self.optimizable_params]).norm(2)
         if (
             self.accelerator.distributed_type == DistributedType.FSDP
             and self.policy.sharding_strategy != ShardingStrategy.NO_SHARD

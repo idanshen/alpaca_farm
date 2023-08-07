@@ -62,7 +62,7 @@ class TrainingArguments(transformers.TrainingArguments):
         },
     )
     four_bits: bool = field(default=True, metadata={"help": "If True, uses 4-bit quantization."})
-    bfloat16: bool = field(default=True, metadata={"help": "If True, uses bfloat16 quantization. If lora and four_bits are True, bfloat16 is used for the lora weights."})
+    bfloat16: bool = field(default=False, metadata={"help": "If True, uses bfloat16 quantization. If lora and four_bits are True, bfloat16 is used for the lora weights."})
     use_lora: bool = field(default=True, metadata={"help": "If True, uses LoRA."})
     lora_r: int = field(default=60, metadata={"help": "LoRA local rank parameter."})
     lora_alpha: float = field(default=16, metadata={"help": "LoRA alpha parameter."})
