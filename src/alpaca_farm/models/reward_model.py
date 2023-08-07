@@ -54,7 +54,7 @@ class RewardModel(transformers.PreTrainedModel):
         if pretrained_lora_weights is not None:
             print("load reward head from checkpoint")
             if os.path.exists(pretrained_lora_weights + "/reward_head.pt"):
-                self.reward_head = torch.load(pretrained_lora_weights + "/reward_head.pt")
+                self.reward_head = torch.load(pretrained_lora_weights + "/reward_head.pt").to(list(self.backbone_model.parameters())[-1].device)
             else:
                 print("reward head not found, use random initialization")
 

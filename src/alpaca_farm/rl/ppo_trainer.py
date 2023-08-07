@@ -307,7 +307,7 @@ class PPOTrainer(rl_trainer.RLTrainer):
             if self.args.output_dir is not None:
                 # Store rollout data to disk to debug.
                 rollouts_to_disk = {
-                    key: self.tokenizer.batch_decode(
+                    key: self.policy_tokenizer.batch_decode(
                         tensor, skip_special_tokens=False, clean_up_tokenization_spaces=False
                     )
                     for key, tensor in common.unpack_dict(
@@ -386,7 +386,6 @@ class PPOTrainer(rl_trainer.RLTrainer):
 def _make_left_padded_tokenizer(
     model_name_or_path: AnyPath,
     cache_dir: AnyPathOrNone = constants.DEFAULT_CACHE_DIR,
-    add_pad: bool = True,
     **kwargs,
 ) -> transformers.PreTrainedTokenizer:
     print(f"Loading tokenizer from {model_name_or_path}")
@@ -396,25 +395,20 @@ def _make_left_padded_tokenizer(
         padding_side="left",
         **kwargs,
     )
-    if tokenizer.pad_token is None:
-        if add_pad:
-            tokenizer.add_special_tokens(dict(pad_token=constants.DEFAULT_PAD_TOKEN))
-        else: 
-            tokenizer.pad_token = tokenizer.eos_token # given correct attention masks in forward, shouldn't matter for reward model
-        
+    tokenizer.padding = "longest"
+    tokenizer.pad_token_id = 0
+
     return tokenizer
 
 
 def make_tokenizer(args):
-    is_policy_reward_same = args.policy_model_name_or_path == args.reward_model_name_or_path
-
     # policy_tokenizer left pads, since the policy requires batch decoding.
     policy_tokenizer = _make_left_padded_tokenizer(
         args.policy_model_name_or_path, cache_dir=args.cache_dir, use_fast=args.use_fast_tokenizer
     )
     # reward_tokenizer left pads, since we need the embedding of the right most non-pad token.
     reward_tokenizer = _make_left_padded_tokenizer(
-        args.reward_model_name_or_path, cache_dir=args.cache_dir, use_fast=args.use_fast_tokenizer, add_pad=is_policy_reward_same,
+        args.reward_model_name_or_path, cache_dir=args.cache_dir, use_fast=args.use_fast_tokenizer,
     )
     
     # import IPython
@@ -448,14 +442,13 @@ def make_models(
             gradient_checkpointing=args.gradient_checkpointing,
             flash_attn=args.flash_attn,
             is_trainable=is_trainable,)
-        utils.stable_resize_token_embeddings(base_model, len(policy_tokenizer), checkpoint_dir=args.policy_model_checkpoint_dir, train_embedding=False)
         return base_model
 
     def make_reward_model(is_trainable):
         reward_model_config = reward_model_module.RewardConfig(backbone_model_name_or_path=args.reward_model_name_or_path)
         
         # for pretrained reward models that aren't lora-based
-        if reward_model_config.backbone_model_name_or_path != 'decapoda-research/llama-7b-hf':
+        if reward_model_config.backbone_model_name_or_path != 'huggyllama/llama-7b':
             base_reward_model = reward_model_module.RewardNoLoraModel(
                 transformer_cache_dir=args.transformer_cache_dir,
                 four_bits=args.four_bits,
@@ -478,10 +471,6 @@ def make_models(
                 pretrained_lora_weights=args.reward_model_checkpoint_dir,
                 is_trainable=is_trainable,
                 config=reward_model_config,)
-        
-        # only resize token embeddings if policy and reward tokenizers are the same
-        if policy_tokenizer.get_vocab() == reward_tokenizer.get_vocab():
-            utils.stable_resize_token_embeddings(base_reward_model.backbone_model, len(reward_tokenizer), checkpoint_dir=args.reward_model_checkpoint_dir, train_embedding=False)
         
         return base_reward_model
 
