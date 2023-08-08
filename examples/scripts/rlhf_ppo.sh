@@ -11,7 +11,7 @@ config_file="./examples/accelerate_configs/rlhf_ppo_npp_llama.yaml"
 
 CUDA_VISIBLE_DEVICES=2,3,4,5,6,7 accelerate launch --config_file "${config_file}" examples/rlhf_ppo.py \
   --run_name "${run_name}" \
-  --step_per_device_batch_size 1 \
+  --step_per_device_batch_size 2 \
   --rollout_per_device_batch_size 32 \
   --per_device_eval_batch_size 32 \
   --output_dir "${output_dir}" \
@@ -22,14 +22,14 @@ CUDA_VISIBLE_DEVICES=2,3,4,5,6,7 accelerate launch --config_file "${config_file}
   --dataset_name "${dataset_name}" \
   --init_value_with_reward False \
   --rollout_batch_size 512 \
-  --step_batch_size 1 \
+  --step_batch_size 128 \
   --learning_rate 1.41e-5 \
   --warmup_steps 5 \
   --kl_coef "${kl_coef}" \
   --total_epochs 1 \
   --flash_attn False \
   --prompt_dict_path "./examples/prompts/v0_inputs_noinputs.json" \
-  --eval_steps 2 \
+  --eval_steps 10 \
   --save_steps 5 \
   --train_splits "train" \
   --eval_splits "validation" \
