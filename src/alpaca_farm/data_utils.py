@@ -13,6 +13,8 @@
 # limitations under the License.
 
 import os
+from typing import List
+
 import datasets
 import pandas as pd
 import transformers
@@ -26,6 +28,9 @@ from .data_preprocessor import (
     DataCollatorForSFTDataset,
     DataCollatorForStackableDataset,
     QueryDataset,
+    SummaryQueryDataset,
+    NoInputQueryDataset,
+    ReviewQueryDataset,
     QueryResponseDataset,
     SFTDataset,
     split_train_into_train_and_eval,
@@ -33,7 +38,7 @@ from .data_preprocessor import (
 )
 
 logger = logging.get_logger(__name__)
-
+    
 
 def make_supervised_data_module(
     tokenizer: transformers.PreTrainedTokenizer,
@@ -98,16 +103,39 @@ def make_binary_reward_modeling_data_module(
 
 
 def make_rl_data_module(
-    tokenizer: transformers.PreTrainedTokenizer,
+    tokenizer: List[transformers.PreTrainedTokenizer],
     data_args,
     training_args,
 ):
+    tokenizer, _ = tokenizer # only use policy tokenizer for data module (not reward tokenizer)
     prompt_dict = utils.jload(data_args.prompt_dict_path)
 
-    alpaca_instructions = datasets.load_dataset(data_args.dataset_path, data_args.dataset_name)
-    train_df = pd.concat([pd.DataFrame(alpaca_instructions[split]) for split in data_args.train_splits])
-    eval_df = pd.concat([pd.DataFrame(alpaca_instructions[split]) for split in data_args.eval_splits])
+    if data_args.dataset_path == 'imdb':
+        alpaca_instructions = datasets.load_dataset(data_args.dataset_path) # doesn't require separate path and name
+    else:
+        alpaca_instructions = datasets.load_dataset(data_args.dataset_path, data_args.dataset_name)
 
+    # TODO: may need to impose min and max lengths per task as they do in rewardsoup
+    if data_args.dataset_path == 'argilla/news-summary' :
+        split_map = {"train": "test", "validation": "train"} # swap train and validation b/c more train dataset is quite small and validation is bigger
+        train_split = split_map[data_args.train_splits[0]]
+        eval_split = split_map[data_args.eval_splits[0]]
+        train_df = alpaca_instructions[train_split]
+        eval_df = alpaca_instructions[eval_split]
+    elif data_args.dataset_path in {'lvwerra/stack-exchange-paired', 'Anthropic/hh-rlhf'}:
+        # TODO: may need to load from offline data on disk for speed for stack exchange
+        split_map = {"train": "train", "validation": "test"}
+        train_split = split_map[data_args.train_splits[0]]
+        eval_split = split_map[data_args.eval_splits[0]]
+        train_df = alpaca_instructions[train_split]
+        eval_df = alpaca_instructions[eval_split]
+        # train_df = pd.concat([pd.DataFrame(alpaca_instructions[split_map[split]]) for split in data_args.train_splits])
+        # eval_df = pd.concat([pd.DataFrame(alpaca_instructions[split_map[split]]) for split in data_args.eval_splits])
+    else:
+        train_df = pd.concat([pd.DataFrame(alpaca_instructions[split]) for split in data_args.train_splits])
+        eval_df = pd.concat([pd.DataFrame(alpaca_instructions[split]) for split in data_args.eval_splits])
+
+    # for Quark training
     if getattr(training_args, "num_reward_tokens", 0) > 0 and not getattr(
         training_args, "train_on_best_quantile", True
     ):
@@ -115,12 +143,24 @@ def make_rl_data_module(
     else:
         prompt_postprocessor = None
 
-    train_dataset = QueryDataset(
+    # instantiate dataset class depending on the dataset
+    if data_args.dataset_path in {'argilla/news-summary', 'openai/summarize_from_feedback'}:
+        dataset_cls = SummaryQueryDataset
+    elif data_args.dataset_path == {'lvwerra/stack-exchange-paired', 'Anthropic/hh-rlhf'}:
+        dataset_cls = NoInputQueryDataset
+    elif data_args.dataset_path == 'imdb':
+        dataset_cls = ReviewQueryDataset
+    else: 
+        dataset_cls = QueryDataset
+
+    train_dataset = dataset_cls(
         df=train_df,
         prompt_dict=prompt_dict,
         tokenizer=tokenizer,
         query_len=training_args.query_len,
         prompt_postprocessor=prompt_postprocessor,
+        dataset_name=data_args.dataset_path,
+        split='train',
     )
 
     if training_args.static_dataset:
@@ -136,11 +176,13 @@ def make_rl_data_module(
                                              query_len=training_args.query_len,
                                              response_len=300,)
 
-    eval_dataset = QueryDataset(
+    eval_dataset = dataset_cls(
         df=eval_df,
         prompt_dict=prompt_dict,
         tokenizer=tokenizer,
         query_len=training_args.query_len,
         prompt_postprocessor=prompt_postprocessor,
+        dataset_name=data_args.dataset_path,
+        split='val',
     )
     return dict(train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=DataCollatorForStackableDataset())

@@ -1,6 +1,6 @@
 import os
 
-from examples.best_of_n import run_decode
+from best_of_n import run_decode
 
 if 'OPENAI_API_KEY' not in os.environ:
     decoding_kwargs = dict(
@@ -14,17 +14,17 @@ else:
 from alpaca_farm.utils import jload, jdump
 from alpaca_farm.auto_annotations import PairwiseAutoAnnotator, alpaca_leaderboard
 
-path_to_data = "/home/idanshen/projects/alpaca_farm/tmp_ppo/ppo_trial_1/output.json"
+path_to_data = "/data/pulkitag/models/idanshen/alpaca_farm/sft/test/output.json"
 if os.path.isfile(path_to_data):
     list_dict_data = jload(path_to_data)
 else:
-    list_dict_data = run_decode(decoder_name_or_path="decapoda-research/llama-7b-hf",
-                                checkpoint_dir="/home/idanshen/projects/alpaca_farm/tmp/test_3/adapter_model/",
+    list_dict_data = run_decode(decoder_name_or_path="huggyllama/llama-7b",
+                                checkpoint_dir="/data/pulkitag/models/idanshen/alpaca_farm/sft/test/adapter_model/",
                                 num_return_sequences=1, temperature=0.7, per_device_batch_size=12, load_in_4_bits=True)
     jdump(list_dict_data, path_to_data)
 
 print("Finish generating data, start evaluating")
-alpaca_leaderboard(list_dict_data, is_print_metrics=True, annotators_config = "annotator_pool_v0/configs.yaml", name="my_ppo")# , **decoding_kwargs)
+alpaca_leaderboard(list_dict_data, is_print_metrics=True, annotators_config = "annotator_pool_v0/configs.yaml", name="my_sft")# , **decoding_kwargs)
 
 """
                                         n_draws  n_total  n_wins  n_wins_base  standard_error  win_rate

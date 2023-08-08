@@ -164,10 +164,13 @@ cython_debug/
 
 wandb/
 tmp/
+sft/
 spf/
+reward/
 tmp_ppo/
 pretrained_models/sft10k/
 examples/tmp_fqe/
 examples/tmp/
 tmp_fqe/
 tmp_fqe_2/
+ppo/

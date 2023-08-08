@@ -90,17 +90,8 @@ def load_model_and_tokenizer_for_inference(
     else:
         model = model_cls.from_pretrained(model_name_or_path, **model_kwargs).eval()
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_name_or_path, **tokenizer_kwargs)
-    # Collect special tokens. Only add if non-existent.
-    special_tokens_dict = dict(additional_special_tokens=[])
-    if tokenizer.pad_token is None:
-        special_tokens_dict["pad_token"] = constants.DEFAULT_PAD_TOKEN
-    if tokenizer.eos_token is None:
-        special_tokens_dict["eos_token"] = constants.DEFAULT_EOS_TOKEN
-    if tokenizer.bos_token is None:
-        special_tokens_dict["bos_token"] = constants.DEFAULT_BOS_TOKEN
-    if tokenizer.unk_token is None:
-        special_tokens_dict["unk_token"] = constants.DEFAULT_UNK_TOKEN
-    utils.stable_resize_token_embeddings_and_tokenizer(model, tokenizer, special_tokens_dict, checkpoint_dir=checkpoint_dir)
+    tokenizer.padding = 'longest'
+    tokenizer.pad_token_id = 0
 
     return model, tokenizer
 

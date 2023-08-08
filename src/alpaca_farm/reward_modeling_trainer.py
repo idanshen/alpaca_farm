@@ -47,21 +47,6 @@ class Trainer(transformers.Trainer):
         loss = F.binary_cross_entropy_with_logits(logits, choice.to(logits.dtype), reduction="mean")
         return (loss, dict(logits=logits)) if return_outputs else loss
 
-# Code from TRL
-#     def compute_loss(self, model, inputs, return_outputs=False):
-#         if not self.use_reward_data_collator:
-#             raise NotImplementedError(
-#                 "compute_loss is only implemented for RewardDataCollatorWithPadding, please implement your own compute_loss method if you are using a custom data collator"
-#             )
-#         rewards_chosen = model(input_ids=inputs["input_ids_chosen"], attention_mask=inputs["attention_mask_chosen"])[0]
-#         rewards_rejected = model(
-#             input_ids=inputs["input_ids_rejected"], attention_mask=inputs["attention_mask_rejected"]
-#         )[0]
-#         loss = -nn.functional.logsigmoid(rewards_chosen - rewards_rejected).mean()
-#         if return_outputs:
-#             return loss, {"rewards_chosen": rewards_chosen, "rewards_rejected": rewards_rejected}
-#         return loss
-
 
 def compute_reward_modeling_metrics(eval_prediction: EvalPrediction) -> Dict:
     # eval_prediction.label_ids is a tuple that matches up with `training_args.label_names`.

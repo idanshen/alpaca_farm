@@ -17,6 +17,7 @@ import torch
 import transformers
 from torch import Tensor, nn
 from transformers.utils.generic import ModelOutput
+from transformers import pipeline
 
 from .. import common
 
@@ -43,14 +44,17 @@ class RewardModel(transformers.PreTrainedModel):
             model_name_or_path=config.backbone_model_name_or_path,
             pretrained_lora_weights=pretrained_lora_weights,
             **kwargs)
+        self.model_parallel = True
+        self.is_parallelizable = True
+
         hidden_size = common.get_transformer_hidden_size(self.backbone_model)
         reward_head = nn.Linear(hidden_size, 1)
         torch.nn.init.zeros_(reward_head.bias)
-        self.reward_head = reward_head.to(next(self.backbone_model.parameters()).device)
+        self.reward_head = reward_head.to(0)
         if pretrained_lora_weights is not None:
             print("load reward head from checkpoint")
             if os.path.exists(pretrained_lora_weights + "/reward_head.pt"):
-                self.reward_head = torch.load(pretrained_lora_weights + "/reward_head.pt")
+                self.reward_head = torch.load(pretrained_lora_weights + "/reward_head.pt").to(list(self.backbone_model.parameters())[-1].device)
             else:
                 print("reward head not found, use random initialization")
 
@@ -79,3 +83,61 @@ class RewardModel(transformers.PreTrainedModel):
 
     def gradient_checkpointing_enable(self):
         self.backbone_model.gradient_checkpointing_enable()
+
+
+class RewardNoLoraModel(transformers.PreTrainedModel):
+    config_class = RewardConfig
+    def __init__(self, config: RewardConfig, **kwargs):
+        super(RewardNoLoraModel, self).__init__(config)
+        print('Initializing reward model that is not lora based')
+
+        self.model = common.get_accelerate_sc_model(
+                    model_name_or_path=config.backbone_model_name_or_path,
+                    **kwargs)
+        self.backbone_model = self.model.transformer # TODO: this may only work for Tristan/GPT2 model
+        self.reward_head = self.model.score # TODO: this may only work for Tristan/GPT2 model
+        
+        # function to apply to the output of the model
+        self.function_to_apply = None
+        if self.model.config.problem_type == "multi_label_classification" or self.model.config.num_labels == 1:
+            self.function_to_apply = torch.sigmoid
+        elif self.model.config.problem_type == "single_label_classification" or self.model.config.num_labels > 1:
+            self.function_to_apply = torch.softmax
+        elif hasattr(self.model.config, "function_to_apply") and self.function_to_apply is None:
+            self.function_to_apply = self.model.config.function_to_apply # TODO: not implemented yet
+        else:
+            self.function_to_apply = lambda x: x
+        
+    def forward(self, input_ids, attention_mask=None, return_dict=True, **kwargs):
+        # We only compute the rewards and don't compute the logistic regression loss in this function so that it's
+        # easier to use for later stages of reranking / RL training.
+        outputs = self.model(input_ids, attention_mask=attention_mask, return_dict=True, **kwargs)
+        rewards = self.function_to_apply(outputs.logits).squeeze(-1)
+        return RewardModelOutput(rewards=rewards) if return_dict else (rewards,)
+         
+    def get_input_embeddings(self) -> nn.Module:
+        return self.model.get_input_embeddings()
+
+    def get_output_embeddings(self) -> nn.Module:
+        return self.model.get_output_embeddings()
+
+    def set_input_embeddings(self, value: nn.Module):
+        self.model.set_input_embeddings(value)
+
+    def gradient_checkpointing_enable(self):
+        self.model.gradient_checkpointing_enable()
+
+class RewardPipeline():
+    def __init__(self, config: RewardConfig, tokenizer: transformers.PreTrainedTokenizer,**kwargs):
+        print('Initializing reward pipeline from a pretrained model (no lora weights)')
+        self.pipeline = pipeline('text-classification', 
+                                 model=config.backbone_model_name_or_path,
+                                 device_map='auto',
+                                 tokenizer=tokenizer
+                                 )
+
+    def forward(self, inputs, return_dict=True, **kwargs):
+        outputs = self.pipeline(inputs)
+        rewards = torch.tensor([output['score'] for output in outputs])
+
+        return RewardModelOutput(rewards=rewards) if return_dict else (rewards,)

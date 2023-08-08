@@ -25,15 +25,18 @@ import accelerate
 import torch
 import torch.distributed as dist
 import transformers
+from accelerate import dispatch_model, infer_auto_device_map
+from accelerate.utils import get_balanced_memory
 from accelerate.utils import convert_outputs_to_fp32, is_torch_version
 from torch import nn
 from torch.distributed.fsdp import FullStateDictConfig
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp import StateDictType
-from transformers.trainer import WEIGHTS_NAME, is_deepspeed_zero3_enabled
+from transformers.trainer import WEIGHTS_NAME#, is_deepspeed_zero3_enabled
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
+    AutoModelForSequenceClassification,
     set_seed,
     Seq2SeqTrainer,
     BitsAndBytesConfig
@@ -158,7 +161,8 @@ def get_accelerate_model(
     assert not flash_attn, "currently flash attention is not supported (need to verify with 4bit training)"
 
     print(f'loading base model {model_name_or_path}...')
-    compute_dtype = (torch.bfloat16 if bfloat16 else torch.float32)
+    compute_dtype = (torch.bfloat16 if bfloat16 else torch.float16)
+
     model = AutoModelForCausalLM.from_pretrained(
         model_name_or_path,
         load_in_4bit=four_bits,
@@ -169,7 +173,7 @@ def get_accelerate_model(
             bnb_4bit_use_double_quant=four_bits,
             bnb_4bit_quant_type='nf4'  # by default, options are {'fp4', 'nf4'}
         ),
-        torch_dtype=torch.bfloat16 if bfloat16 else torch.float32,
+        torch_dtype=torch.bfloat16 if bfloat16 else torch.float16,
         trust_remote_code=False,  # Set True to enable unpickling of arbitrary code in AutoModelForCausalLM#from_pretrained.
         cache_dir=transformer_cache_dir,
     )
@@ -178,7 +182,7 @@ def get_accelerate_model(
     setattr(model, 'is_parallelizable', True)
     modules = find_all_linear_names(four_bits, model)
 
-    model.config.torch_dtype = torch.bfloat16 if bfloat16 else torch.float32
+    model.config.torch_dtype = torch.bfloat16 if bfloat16 else torch.float16
 
     model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=gradient_checkpointing)
     if gradient_checkpointing:
@@ -202,6 +206,79 @@ def get_accelerate_model(
         else:
             print(f'adding LoRA modules...')
             model = get_peft_model(model, config)
+
+    if gradient_checkpointing:
+        if hasattr(model, "enable_input_require_grads"):
+            model.enable_input_require_grads()
+        else:
+            def make_inputs_require_grad(module, input, output):
+                output.requires_grad_(True)
+            model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
+
+    for name, module in model.named_modules():
+        if isinstance(module, LoraLayer):
+            if bfloat16:
+                module = module.to(torch.bfloat16)
+        if 'norm' in name:
+            module = module.to(torch.float32)
+        if 'lm_head' in name or 'embed_tokens' in name:
+            if hasattr(module, 'weight'):
+                if bfloat16 and module.weight.dtype == torch.float16:
+                    module = module.to(torch.bfloat16)
+
+    return model
+
+# same as get_accelerate_model but for sequence classification models that aren't lora-based
+def get_accelerate_sc_model(
+    model_name_or_path: str,
+    flash_attn: bool = False,
+    four_bits: bool = True,
+    bfloat16: bool = True,
+    gradient_checkpointing: bool = True,
+    transformer_cache_dir: Optional[str] = None,
+    is_trainable: bool = True,
+    **kwargs,
+):
+
+    assert not flash_attn, "currently flash attention is not supported (need to verify with 4bit training)"
+
+    print(f'loading base model {model_name_or_path}...')
+    compute_dtype = (torch.bfloat16 if bfloat16 else torch.float32)
+    
+    # for older models, load_in_4bit=False b/c no linear layers
+    if model_name_or_path == 'Tristan/gpt2_reward_summarization':
+        four_bits = False
+        # may have to set quantization config to None as well
+
+    model = AutoModelForSequenceClassification.from_pretrained(
+        model_name_or_path,
+        load_in_4bit=four_bits,
+        device_map='auto',
+        quantization_config=BitsAndBytesConfig(
+            load_in_4bit=four_bits,
+            bnb_4bit_compute_dtype=compute_dtype,
+            bnb_4bit_use_double_quant=four_bits,
+            bnb_4bit_quant_type='nf4'  # by default, options are {'fp4', 'nf4'}
+        ),
+        torch_dtype=torch.bfloat16 if bfloat16 else torch.float32,
+        trust_remote_code=False,  # Set True to enable unpickling of arbitrary code in AutoModelForCausalLM#from_pretrained.
+        cache_dir=transformer_cache_dir,
+    )
+
+    # turning gradients on/off depending on whether it is_trainable
+    for p in model.parameters():
+        p.requires_grad = is_trainable
+
+    print('This may throw some warnings if the model (older versions) do not contain linear layers')
+
+    setattr(model, 'model_parallel', True)
+    setattr(model, 'is_parallelizable', True)
+
+    model.config.torch_dtype = torch.bfloat16 if bfloat16 else torch.float32
+
+    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=gradient_checkpointing)
+    if gradient_checkpointing:
+        model.gradient_checkpointing_enable()
 
     if gradient_checkpointing:
         if hasattr(model, "enable_input_require_grads"):
@@ -273,9 +350,6 @@ def let_model_save_mem_when_zero_grad(model: nn.Module):
 
 def save_peft_model(model: PeftModel, peft_model_path: str):
     model.save_pretrained(peft_model_path)
-    # Saving input and output embedding
-    torch.save(model.get_input_embeddings().weight, os.path.join(peft_model_path, "input_embeddings.pt"))
-    torch.save(model.get_output_embeddings().weight, os.path.join(peft_model_path, "output_embeddings.pt"))
 
 
 def safe_save_model_for_hf_trainer(
@@ -312,16 +386,16 @@ def safe_save_model_for_hf_trainer(
         if trainer.args.should_save:
             trainer._save(output_dir)
 
-        if is_deepspeed_zero3_enabled():
-            # It's too complicated to try to override different places where the weights dump gets
-            # saved, so since under zero3 the file is bogus, simply delete it. The user should
-            # either use deepspeed checkpoint to resume or to recover full weights use
-            # zero_to_fp32.py stored in the checkpoint.
-            if trainer.args.should_save:
-                file = os.path.join(output_dir, WEIGHTS_NAME)
-                if os.path.isfile(file):
-                    logger.warning(f"deepspeed zero3: removing {file}, see zero_to_fp32.py to recover weights")
-                    os.remove(file)
+        # if is_deepspeed_zero3_enabled():
+        #     # It's too complicated to try to override different places where the weights dump gets
+        #     # saved, so since under zero3 the file is bogus, simply delete it. The user should
+        #     # either use deepspeed checkpoint to resume or to recover full weights use
+        #     # zero_to_fp32.py stored in the checkpoint.
+        #     if trainer.args.should_save:
+        #         file = os.path.join(output_dir, WEIGHTS_NAME)
+        #         if os.path.isfile(file):
+        #             logger.warning(f"deepspeed zero3: removing {file}, see zero_to_fp32.py to recover weights")
+        #             os.remove(file)
 
             # now save the real model if stage3_gather_16bit_weights_on_model_save=True
             # if false it will not be saved.
@@ -411,7 +485,7 @@ def get_transformer_hidden_size(model: transformers.PreTrainedModel):
             model = model.base_model.model
         else:
             model = model.base_model
-    if isinstance(model, transformers.GPT2LMHeadModel):
+    if isinstance(model, transformers.GPT2LMHeadModel) or isinstance(model, transformers.GPT2Model):
         hidden_size_attr_name = "n_embd"
     elif isinstance(model, transformers.OPTForCausalLM):
         hidden_size_attr_name = "word_embed_proj_dim"
