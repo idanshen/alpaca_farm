@@ -211,9 +211,13 @@ class RLTrainer(object):
         logger.warning(f"Start evaluation at step: {step_idx}", main_process_only=True)
 
         prompts, list_dict_data = self.eval_dataset.prompts, self.eval_dataset.list_dict_data
-        if any(item is None for item in (prompts, list_dict_data)):
+        # if any(item is None for item in (prompts, list_dict_data)):
+        if prompts is None:
             logger.warning("No evaluation data, skipping evaluation.", main_process_only=True)
             return
+        
+        if list_dict_data is None:
+            list_dict_data = [{"prompt": p} for p in prompts]
 
         # Constants.
         model_name = Path(self.args.output_dir).stem  # Don't use the helper in common, as no checkpoint is saved yet.
@@ -223,7 +227,7 @@ class RLTrainer(object):
 
         # Start evaluation.
         self.policy.eval()
-        self._make_fsdp_happy()
+        self._make_fsdp_happy() # we can keep this b/c it automatically checks if fsdp or not
         if unwrapped_policy is None:
             unwrapped_policy = self.accelerator.unwrap_model(self.policy, keep_fp32_wrapper=True)
             unwrapped_policy = unwrapped_policy.policy.base_model
@@ -244,8 +248,8 @@ class RLTrainer(object):
             per_device_batch_size=self.args.rollout_per_device_batch_size,
             divide_work=False,
         )
-
-        if self.accelerator.is_main_process:
+        
+        if self.accelerator.is_main_process:        
             results = [
                 {"reward": reward, model_name_at_step: output, **example}
                 for reward, output, example in utils.zip_(rewards, outputs, list_dict_data)
