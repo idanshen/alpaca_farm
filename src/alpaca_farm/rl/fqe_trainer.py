@@ -112,7 +112,7 @@ class FQETrainer(rl_trainer.RLTrainer):
                 'rewards', 'non_score_rewards', 'shaped_rewards'.
         """
         # Give up dropout throughout.
-        self._make_fsdp_happy()
+        # self._make_fsdp_happy()
 
         self.ref_policy.eval()
         self.reward_model.eval()
