@@ -193,8 +193,8 @@ class RLTrainer(object):
             desc="steps",
             total=total_steps,
         ):
-            # if step_idx % self.args.save_steps == 0 or step_idx in self.args.save_steps_extra_list:
-            #     self.save_model(utils.join(self.args.output_dir, f"checkpoint-{step_idx}"))
+            if step_idx % self.args.save_steps == 0 or step_idx in self.args.save_steps_extra_list:
+                self.save_model(utils.join(self.args.output_dir, f"checkpoint-{step_idx}"))
             if self.args.eval_steps is not None and step_idx % self.args.eval_steps == 0:
                 self.evaluate(step_idx)
             self.log_history.append(self.step(infinite_train_dataloader, step_idx))
@@ -228,13 +228,9 @@ class RLTrainer(object):
 
         # Start evaluation.
         self.policy.eval()
-<<<<<<< HEAD
-        # self._make_fsdp_happy()
-=======
         self._make_fsdp_happy() # we can keep this b/c it automatically checks if fsdp or not
->>>>>>> 1157bdef200b626d42d9868b9ff2af8f30253fbc
         if unwrapped_policy is None:
-            unwrapped_policy = self.accelerator.unwrap_model(self.policy, keep_fp32_wrapper=True)
+            unwrapped_policy = self.accelerator.unwrap_model(self.policy, keep_fp32_wrapper=False)
             unwrapped_policy = unwrapped_policy.policy.base_model
 
         outputs = decode.decode_prompts_with_huggingface_given_model(
