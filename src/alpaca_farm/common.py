@@ -252,10 +252,17 @@ def get_accelerate_sc_model(
             )
 
     # for older models, load_in_4bit=False b/c no linear layers
+<<<<<<< HEAD
     # if model_name_or_path == 'Tristan/gpt2_reward_summarization':
     #     four_bits = False
         # may have to set quantization config to None as well
         # q_config = None
+=======
+    if model_name_or_path == 'Tristan/gpt2_reward_summarization':
+        four_bits = True #False
+        # may have to set quantization config to None as well
+        #q_config = None
+>>>>>>> 971ab71bd5a7577e135f10be3d1e23efd46df1f7
 
     model = AutoModelForSequenceClassification.from_pretrained(
         model_name_or_path,
