@@ -117,7 +117,7 @@ class PPOTrainer(rl_trainer.RLTrainer):
         """
         # Give up dropout throughout.
         self.policy.eval()
-        # self._make_fsdp_happy()
+        self._make_fsdp_happy()
         # `keep_fp32_wrapper` retains the autocast wrapper of model.forward created by accelerate:
         #  recall one sets mixed precision options with accelerator.
         # The precise value of this arg doesn't matter here, since we use the unwrapped model only for respond.
@@ -396,7 +396,11 @@ def _make_left_padded_tokenizer(
         **kwargs,
     )
     tokenizer.padding = "longest"
-    tokenizer.pad_token_id = 0
+    
+    if 'llama' in model_name_or_path:
+        tokenizer.pad_token_id = 0
+    else:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
 
     return tokenizer
 
