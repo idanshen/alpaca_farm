@@ -95,8 +95,8 @@ class RewardNoLoraModel(transformers.PreTrainedModel):
         self.model = common.get_accelerate_sc_model(
                     model_name_or_path=config.backbone_model_name_or_path,
                     **kwargs)
-        self.backbone_model = self.model.transformer # TODO: this may only work for Tristan/GPT2 model
-        self.reward_head = self.model.score # TODO: this may only work for Tristan/GPT2 model
+        self.backbone_model = self.model.transformer if hasattr(self.model, 'transformer') else self.model.model # TODO (seungwook): may need to fix for other models
+        self.reward_head = self.model.score if hasattr(self.model, 'score') else None
         
         self.model_parallel = True
         self.is_parallelizable = True
