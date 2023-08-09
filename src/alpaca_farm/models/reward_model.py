@@ -121,8 +121,8 @@ class RewardNoLoraModel(transformers.PreTrainedModel):
         
         # if num_labels > 1, then we need to return the max logit
         if rewards.shape[-1] > 1 and rewards.ndim > 1:
-            rewards = rewards.max(dim=-1)
-            
+            rewards = rewards.max(dim=-1).values
+
         return RewardModelOutput(rewards=rewards) if return_dict else (rewards,)
          
     def get_input_embeddings(self) -> nn.Module:
