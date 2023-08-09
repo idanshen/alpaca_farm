@@ -7,6 +7,7 @@ kl_coef=${6:-0.0067}
 dataset_path=$7
 dataset_name=$8
 
+echo $WANDB_DATA_DIR
 config_file="./examples/accelerate_configs/rlhf_ppo_npp_llama.yaml"
 
 CUDA_VISIBLE_DEVICES=2,3,4,5,6,7 accelerate launch --config_file "${config_file}" examples/rlhf_ppo.py \
