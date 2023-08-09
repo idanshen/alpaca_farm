@@ -119,9 +119,9 @@ class RewardNoLoraModel(transformers.PreTrainedModel):
         outputs = self.model(input_ids, attention_mask=attention_mask, return_dict=True, **kwargs)
         rewards = self.function_to_apply(outputs.logits).squeeze(-1)
         
-        # if num_labels > 1, then we need to return the max logit
-        if rewards.shape[-1] > 1 and rewards.ndim > 1:
-            rewards = rewards.max(dim=-1).values
+        # special case of bart summarization reward model, need to take the difference btw faithful (label 1) and hallucination (label 0)
+        if rewards.shape[-1] > 1 and rewards.ndim == 1:
+            rewards = rewards[:, 1] - rewards[:, 0]
 
         return RewardModelOutput(rewards=rewards) if return_dict else (rewards,)
          
