@@ -240,6 +240,7 @@ class RLTrainer(object):
             decoding_args=decode.HFDecodingArguments(max_new_tokens=self.args.response_len, temperature=temperature),
             per_device_batch_size=self.args.per_device_eval_batch_size,
             divide_work=False,
+            mixed_precision='bf16' if self.args.bfloat16 else 'fp16'
         )
         sequences = [i + o for i, o in utils.zip_(prompts, outputs)]
         rewards = score.score_sequences_with_huggingface_given_model(
@@ -248,6 +249,7 @@ class RLTrainer(object):
             sequences=sequences,
             per_device_batch_size=self.args.rollout_per_device_batch_size,
             divide_work=False,
+            mixed_precision='bf16' if self.args.bfloat16 else 'fp16'
         )
         
         if self.accelerator.is_main_process:        
