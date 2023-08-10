@@ -121,7 +121,7 @@ class RewardNoLoraModel(transformers.PreTrainedModel):
         
         # special case of bart summarization reward model, need to take the difference btw faithful (label 1) and hallucination (label 0)
         # TODO (seungwook): may need to fix later for other reward models
-        if rewards.shape[-1] > 1 and rewards.ndim == 1:
+        if rewards.shape[-1] > 1 and rewards.ndim == 2:
             rewards = rewards[:, 1] - rewards[:, 0]
 
         return RewardModelOutput(rewards=rewards) if return_dict else (rewards,)
