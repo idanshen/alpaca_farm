@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os.path
+from functools import partial
 
 import torch
 import transformers
@@ -95,8 +96,8 @@ class RewardNoLoraModel(transformers.PreTrainedModel):
         self.model = common.get_accelerate_sc_model(
                     model_name_or_path=config.backbone_model_name_or_path,
                     **kwargs)
-        self.backbone_model = self.model.transformer # TODO: this may only work for Tristan/GPT2 model
-        self.reward_head = self.model.score # TODO: this may only work for Tristan/GPT2 model
+        self.backbone_model = self.model.transformer if hasattr(self.model, 'transformer') else self.model.model # TODO (seungwook): may need to fix for other models
+        self.reward_head = self.model.score if hasattr(self.model, 'score') else None
         
         self.model_parallel = True
         self.is_parallelizable = True
@@ -106,7 +107,7 @@ class RewardNoLoraModel(transformers.PreTrainedModel):
         if self.model.config.problem_type == "multi_label_classification" or self.model.config.num_labels == 1:
             self.function_to_apply = torch.sigmoid
         elif self.model.config.problem_type == "single_label_classification" or self.model.config.num_labels > 1:
-            self.function_to_apply = torch.softmax
+            self.function_to_apply = partial(torch.softmax, dim=-1)
         elif hasattr(self.model.config, "function_to_apply") and self.function_to_apply is None:
             self.function_to_apply = self.model.config.function_to_apply # TODO: not implemented yet
         else:
@@ -117,6 +118,12 @@ class RewardNoLoraModel(transformers.PreTrainedModel):
         # easier to use for later stages of reranking / RL training.
         outputs = self.model(input_ids, attention_mask=attention_mask, return_dict=True, **kwargs)
         rewards = self.function_to_apply(outputs.logits).squeeze(-1)
+        
+        # special case of bart summarization reward model, need to take the difference btw faithful (label 1) and hallucination (label 0)
+        # TODO (seungwook): may need to fix later for other reward models
+        if rewards.shape[-1] > 1 and rewards.ndim == 2:
+            rewards = rewards[:, 1] - rewards[:, 0]
+
         return RewardModelOutput(rewards=rewards) if return_dict else (rewards,)
          
     def get_input_embeddings(self) -> nn.Module:
