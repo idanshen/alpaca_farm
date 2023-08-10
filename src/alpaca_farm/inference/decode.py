@@ -85,7 +85,7 @@ def load_model_and_tokenizer_for_inference(
 
     if load_in_4_bits:
         assert checkpoint_dir is not None, "checkpoint_dir (path to lora weights) must be specified when load_in_4_bits is True"
-        model = common.get_accelerate_model(model_name_or_path, pretrained_lora_weights=checkpoint_dir, flash_attn=False, **model_kwargs).eval()
+        model = common.get_accelerate_model(model_name_or_path, pretrained_lora_weights=checkpoint_dir, flash_attn=False, is_trainable=False, **model_kwargs).eval()
         common.let_model_save_mem_when_zero_grad(model)
     else:
         model = model_cls.from_pretrained(model_name_or_path, **model_kwargs).eval()

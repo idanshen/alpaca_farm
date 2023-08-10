@@ -58,13 +58,14 @@ class Policy(nn.Module, abc.ABC):
         query_attn_masks: Tensor,
         temperature: Optional[float] = None,
         num_return_sequences=1,
+        resoinse_len: Optional[int] = None,
     ) -> Dict[str, Tensor]:
         assert not self.training, "Policy must be in eval model for generation."
-        return self._post_respond(self._respond(queries, query_attn_masks, temperature, num_return_sequences))
+        return self._post_respond(self._respond(queries, query_attn_masks, temperature, num_return_sequences, resoinse_len))
 
     @abc.abstractmethod
     def _respond(
-        self, queries: Tensor, query_attn_masks: Tensor, temperature: Optional[float] = None, num_return_sequences=1
+        self, queries: Tensor, query_attn_masks: Tensor, temperature: Optional[float] = None, num_return_sequences=1, response_len: Optional[int] = None,
     ) -> Dict[str, Tensor]:
         raise NotImplementedError
 
@@ -113,6 +114,7 @@ class AutoregressivePolicy(Policy):
         query_attn_masks: Tensor,
         temperature: Optional[float] = None,
         num_return_sequences=1,
+        response_len: Optional[int] = None,
     ) -> Dict[str, Tensor]:
         if temperature is None:
             temperature = self.args.temperature
@@ -120,7 +122,7 @@ class AutoregressivePolicy(Policy):
             inputs=queries,
             attention_mask=query_attn_masks,
             do_sample=True,
-            max_new_tokens=self.args.response_len,
+            max_new_tokens=self.args.response_len if response_len is None else response_len,
             pad_token_id=self.base_tokenizer.pad_token_id,
             top_p=1.0,
             top_k=0,
@@ -215,7 +217,7 @@ class Qfunction(nn.Module, abc.ABC):
         q_head = torch.nn.Linear(hidden_size, len(base_tokenizer))
         q_head.weight.data.zero_()
         q_head.bias.data.zero_()
-        self.q_head = q_head.to(0, dtype=torch.float32)
+        self.q_head = q_head.to(list(base_model.parameters())[-1].device)
         self.model_parallel = True
         self.is_parallelizable = True
 
@@ -237,6 +239,8 @@ class AutoregressiveQfunction(Qfunction):
         outputs = self.base_model.model(**inputs, output_hidden_states=True)
 
         last_hidden_state = outputs.hidden_states[-1][:, queries.size(1) - 1 : -1]
+        if last_hidden_state.dtype != torch.float32:
+            last_hidden_state = last_hidden_state.float()
         qvalues = self.q_head(last_hidden_state).squeeze(-1)
         return dict(qvalues=qvalues)
 

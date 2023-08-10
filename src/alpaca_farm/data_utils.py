@@ -171,10 +171,10 @@ def make_rl_data_module(
         if prompt_postprocessor is not None:
             prompts = [prompt_postprocessor(prompt) for prompt in prompts]
         train_dataset = QueryResponseDataset(tokenizer=tokenizer,
-                                             queries= prompts,
+                                             queries=prompts,
                                              responses=[dict_data['output'] for dict_data in list_dict_data],
                                              query_len=training_args.query_len,
-                                             response_len=300,)
+                                             response_len=training_args.response_len,)
 
     eval_dataset = dataset_cls(
         df=eval_df,

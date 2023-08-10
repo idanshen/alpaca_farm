@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import os
-from typing import Callable, Dict, Optional, Tuple
+from typing import Callable, Dict, Optional, Tuple, List
 
 import accelerate
 import pandas as pd
@@ -48,7 +48,7 @@ class FQETrainer(rl_trainer.RLTrainer):
         qfunction_model: rl_models.Qfunction,
         ref_policy: rl_models.Policy,
         reward_model: nn.Module,
-        tokenizer: transformers.PreTrainedTokenizer,
+        tokenizer: List[transformers.PreTrainedTokenizer],
         accelerator: accelerate_patch.MyAccelerator,
         optimizer: Optional[torch.optim.Optimizer] = None,
         lr_scheduler: Optional[LRScheduler] = None,
@@ -74,7 +74,7 @@ class FQETrainer(rl_trainer.RLTrainer):
         non_score_rewards = torch.zeros_like(responses, dtype=torch.float32)
         shaped_rewards = non_score_rewards.clone()
         # This introduces a small index off by one bug if pad_token_id == eos_token_id.
-        terminal_positions = (responses != self.tokenizer.pad_token_id).sum(dim=1) - 1
+        terminal_positions = (responses != self.reward_tokenizer.pad_token_id).sum(dim=1) - 1  # TODO (seungwook): make sure this is supposed to use reward tokenizer
         shaped_rewards[list(range(rewards.size(0))), terminal_positions] += rewards
         return dict(shaped_rewards=shaped_rewards, non_score_rewards=non_score_rewards)
 
@@ -147,7 +147,7 @@ class FQETrainer(rl_trainer.RLTrainer):
 
             # Evaluate reward of the samples.
             text_queries, text_responses = tuple(
-                self.tokenizer.batch_decode(tensor, skip_special_tokens=True, clean_up_tokenization_spaces=True)
+                self.policy_tokenizer.batch_decode(tensor, skip_special_tokens=True, clean_up_tokenization_spaces=True)
                 for tensor in (queries, responses)
             )
             del queries, responses  # Prevent mistakes.
@@ -158,7 +158,7 @@ class FQETrainer(rl_trainer.RLTrainer):
             # TODO(lxuechen): This response retokenization has issues with OPT, since the tokenizer always prepend
             #  <bos_token>. But the issue is local to post_reward, which isn't an issue if we don't penalize.
             sequences, responses = tuple(
-                self.tokenizer(text, return_tensors="pt", padding=True, truncation=True)
+                self.reward_tokenizer(text, return_tensors="pt", padding=True, truncation=True)
                 for text in (text_sequences, text_responses)
             )
             sequences, responses = common.prepare_inputs((sequences, responses), device=self.accelerator.device)
@@ -278,7 +278,7 @@ class FQETrainer(rl_trainer.RLTrainer):
             if self.args.output_dir is not None:
                 # Store rollout data to disk to debug.
                 rollouts_to_disk = {
-                    key: self.tokenizer.batch_decode(
+                    key: self.policy_tokenizer.batch_decode(
                         tensor, skip_special_tokens=False, clean_up_tokenization_spaces=False
                     )
                     for key, tensor in common.unpack_dict(
@@ -302,7 +302,7 @@ class FQETrainer(rl_trainer.RLTrainer):
         output_dir = self.args.output_dir if output_dir is None else output_dir
         utils.makedirs(output_dir)
 
-        model, tokenizer = self.policy, self.tokenizer
+        model, policy_tokenizer, reward_tokenizer = self.policy, self.policy_tokenizer, self.reward_tokenizer
         if self.accelerator.distributed_type == DistributedType.NO:
             state_dict = model.state_dict()
         else:
@@ -343,7 +343,8 @@ class FQETrainer(rl_trainer.RLTrainer):
             logger.warning(f"Saving {len(cpu_state_dict)} keys:\n{utils.jdumps(cpu_state_dict.keys())}")
             unwrapped.save_pretrained(output_dir, state_dict=cpu_state_dict)
 
-            tokenizer.save_pretrained(output_dir)
+            policy_tokenizer.save_pretrained(output_dir)
+            reward_tokenizer.save_pretrained(output_dir)
 
             # Good practice: save your training arguments together with the trained model
             torch.save(self.args, os.path.join(output_dir, constants.TRAINING_ARGS_NAME))
@@ -360,14 +361,18 @@ def _make_left_padded_tokenizer(
     cache_dir: AnyPathOrNone = constants.DEFAULT_CACHE_DIR,
     **kwargs,
 ) -> transformers.PreTrainedTokenizer:
+    print(f"Loading tokenizer from {model_name_or_path}")
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_name_or_path,
         cache_dir=cache_dir,
         padding_side="left",
         **kwargs,
     )
-    if tokenizer.pad_token is None:
-        tokenizer.add_special_tokens(dict(pad_token=constants.DEFAULT_PAD_TOKEN))
+    tokenizer.padding = "longest"
+    if model_name_or_path == "huggyllama/llama-7b":
+        tokenizer.pad_token_id = 0
+    else:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
     return tokenizer
 
 
@@ -381,15 +386,19 @@ def make_tokenizer(args):
         args.reward_model_name_or_path, cache_dir=args.cache_dir, use_fast=args.use_fast_tokenizer
     )
     if policy_tokenizer.get_vocab() != reward_tokenizer.get_vocab():
-        raise ValueError("AlpacaFarm does not support different tokenizer for policy and reward models.")
-    return policy_tokenizer
+        logger.info('Policy and reward tokenizers are different.')
+        return [policy_tokenizer, reward_tokenizer]
+    else:
+        logger.info('Policy and reward tokenizers are the same.')
+        return [policy_tokenizer, policy_tokenizer]
 
 
 def make_models(
-    tokenizer: transformers.PreTrainedTokenizer,
+    tokenizer: List[transformers.PreTrainedTokenizer],
     args,
     accelerator: accelerate.Accelerator,
 ) -> dict:
+    policy_tokenizer, reward_tokenizer = tokenizer
     def make_generative_policy(is_trainable):
         base_model = common.get_accelerate_model(
             model_name_or_path=args.policy_model_name_or_path,
@@ -404,25 +413,34 @@ def make_models(
             gradient_checkpointing=args.gradient_checkpointing,
             flash_attn=args.flash_attn,
             is_trainable=is_trainable,)
-        utils.stable_resize_token_embeddings(base_model, len(tokenizer), checkpoint_dir=args.policy_model_checkpoint_dir, train_embedding=False)
         return base_model
 
     def make_reward_model(is_trainable):
         reward_model_config = reward_model_module.RewardConfig(backbone_model_name_or_path=args.reward_model_name_or_path)
-        base_reward_model = reward_model_module.RewardModel(
-            transformer_cache_dir=args.transformer_cache_dir,
-            four_bits=args.four_bits,
-            bfloat16=args.bfloat16,
-            use_lora=args.use_lora,
-            lora_r=args.lora_r,
-            lora_alpha=args.lora_alpha,
-            lora_dropout=args.lora_dropout,
-            gradient_checkpointing=args.gradient_checkpointing,
-            flash_attn=args.flash_attn,
-            pretrained_lora_weights=args.reward_model_checkpoint_dir,
-            is_trainable=is_trainable,
-            config=reward_model_config,)
-        utils.stable_resize_token_embeddings(base_reward_model.backbone_model, len(tokenizer), checkpoint_dir=args.reward_model_checkpoint_dir, train_embedding=False)
+        # for pretrained reward models that aren't lora-based
+        if reward_model_config.backbone_model_name_or_path != 'huggyllama/llama-7b':
+            base_reward_model = reward_model_module.RewardNoLoraModel(
+                transformer_cache_dir=args.transformer_cache_dir,
+                four_bits=args.four_bits,
+                bfloat16=args.bfloat16,
+                gradient_checkpointing=args.gradient_checkpointing,
+                flash_attn=args.flash_attn,
+                is_trainable=is_trainable,
+                config=reward_model_config, )
+        else:
+            base_reward_model = reward_model_module.RewardModel(
+                transformer_cache_dir=args.transformer_cache_dir,
+                four_bits=args.four_bits,
+                bfloat16=args.bfloat16,
+                use_lora=args.use_lora,
+                lora_r=args.lora_r,
+                lora_alpha=args.lora_alpha,
+                lora_dropout=args.lora_dropout,
+                gradient_checkpointing=args.gradient_checkpointing,
+                flash_attn=args.flash_attn,
+                pretrained_lora_weights=args.reward_model_checkpoint_dir,
+                is_trainable=is_trainable,
+                config=reward_model_config, )
         return base_reward_model
 
     # Model construction below seems convoluted, but it's made to trade time for RAM efficiency.
@@ -434,11 +452,12 @@ def make_models(
     if args.init_value_with_reward:
         # Initialize value from reward model a la OAI.
         logger.warning("Initializing value model with reward model.")
-        qfunction_model = rl_models.make_qfunction_with_base_model(args, make_reward_model(is_trainable=True).backbone_model, tokenizer)
+        qfunction_model = rl_models.make_qfunction_with_base_model(args, make_reward_model(is_trainable=True).backbone_model, policy_tokenizer)
     else:
         logger.warning("Initializing value model with policy model.")
         # Initialize value from policy. Works for sanity, but generally performs worse in instruction-following.
-        qfunction_model = rl_models.make_qfunction_with_base_model(args, make_generative_policy(is_trainable=True), tokenizer)
+        # initializing value model with reward model won't work with encoder-decoder-based models
+        qfunction_model = rl_models.make_qfunction_with_base_model(args, make_generative_policy(is_trainable=True), policy_tokenizer)
     # actor_critic = rl_models.ActorCritic(policy=None, value_model=value_model)
     # We cast how respond should run. It's important the dtypes be consistent with training, since a bf16
     # fine-tuned model might not work with fp16 inference.
@@ -447,7 +466,7 @@ def make_models(
     qfunction_model = common.prepare_model_for_custom_fn(model=qfunction_model, fn_name="respond", accelerator=accelerator)
     qfunction_model = accelerator.prepare(qfunction_model)  # noqa
 
-    ref_policy = rl_models.make_policy_with_base_model(args, make_generative_policy(is_trainable=False), tokenizer)
+    ref_policy = rl_models.make_policy_with_base_model(args, make_generative_policy(is_trainable=False), policy_tokenizer)
     ref_policy.requires_grad_(False)
     ref_policy = accelerator.prepare(ref_policy)  # noqa
 
@@ -457,7 +476,7 @@ def make_models(
 
     # TODO: This is a hack to get FSDP running. Remove in the future when we figure things out.
     if accelerator.distributed_type == accelerate.DistributedType.FSDP:
-        inputs = tokenizer("fsdp are you happy now??? :)" * 50, return_tensors="pt")
+        inputs = tokenizer[0]("fsdp are you happy now??? :)" * 50, return_tensors="pt")
         inputs = {key: value.to(accelerator.device) for key, value in inputs.items()}
         qfunction_model(inputs["input_ids"], inputs["attention_mask"], inputs["input_ids"])
 
