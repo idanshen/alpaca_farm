@@ -298,7 +298,7 @@ def get_accelerate_sc_model(
             module = module.to(torch.float32)
         if 'lm_head' in name or 'embed_tokens' in name:
             if hasattr(module, 'weight'):
-                if bfloat16 and module.weight.dtype == torch.float32:
+                if bfloat16 and module.weight.dtype == torch.float16:
                     module = module.to(torch.bfloat16)
     return model
 
