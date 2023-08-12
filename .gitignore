@@ -175,5 +175,7 @@ examples/tmp/
 tmp_fqe/
 tmp_fqe_2/
 pretrained_models/ppo_news_summarization
-
+ppo_2/
 ppo/
+examples/Untitled.ipynb
+nohup.out

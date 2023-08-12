@@ -24,6 +24,7 @@ from torch import nn
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullStateDictConfig
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.fully_sharded_data_parallel import StateDictType
+from torch.utils.data import DataLoader
 from transformers.modeling_utils import unwrap_model
 from accelerate import DistributedType
 import peft
@@ -66,6 +67,13 @@ class FQETrainer(rl_trainer.RLTrainer):
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
         )
+        eval_dataloader = DataLoader(
+            dataset=self.eval_dataset,
+            collate_fn=self.data_collator,
+            batch_size=args.per_device_eval_batch_size,
+            shuffle=True,
+            drop_last=True,)
+        self.eval_dataloader = self.accelerator.prepare(eval_dataloader)  # noqa
 
     def _shape_reward(
         self, rewards: Tensor, responses: Tensor,
@@ -288,6 +296,46 @@ class FQETrainer(rl_trainer.RLTrainer):
                 rollouts_to_disk = pd.DataFrame(rollouts_to_disk).to_dict(orient="records")
                 utils.jdump(rollouts_to_disk, utils.join(self.args.output_dir, "rollouts", f"step_{step_idx}.json"))
         return stats
+
+    @torch.inference_mode()
+    def evaluate(self, step_idx: int, unwrapped_policy=None):
+        """Evaluate by query the Q-values of the model on the evaluation dataset."""
+
+        logger.warning(f"Start evaluation at step: {step_idx}", main_process_only=True)
+
+        aggregated_loss = []
+        for batch in tqdm.tqdm(self.eval_dataloader, desc="Evaluating"):
+            queries, query_attn_masks, values = common.prepare_inputs(
+                common.unpack_dict(
+                    batch,
+                    keys=("queries", "query_attn_masks", "values"),
+                ),
+                device=self.accelerator.device,
+            )
+
+            # Remove the last token from the queries
+            queries = queries[:, :-1]
+            query_attn_masks = query_attn_masks[:, :-1]
+            last_token = queries[:, -1]
+
+            # Start evaluation.
+            self.policy.eval()
+            self._make_fsdp_happy()  # we can keep this b/c it automatically checks if fsdp or not
+
+            # Compute the Q-values for the responses
+            q_values = self.policy(queries, query_attn_masks, only_last=True)["qvalues"]
+            q_values = torch.gather(q_values.squeeze(1), dim=1, index=last_token.unsqueeze(-1)).squeeze(-1)
+
+            # Compute the loss
+            assert q_values.shape == values.shape
+            batch_loss = (q_values - values) ** 2.0
+            aggregated_loss.append(batch_loss)
+
+        aggregated_loss = torch.cat(aggregated_loss, dim=0)
+        loss = aggregated_loss.mean()
+        stats = dict(loss=loss)
+        if self.accelerator.is_main_process:
+            self.accelerator.log(stats, step=step_idx)
 
     @torch.inference_mode()
     def save_model(self, output_dir: Optional[str] = None, give_rw_access=True, check_corrupted=True):

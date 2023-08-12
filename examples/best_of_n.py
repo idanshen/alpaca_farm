@@ -19,6 +19,7 @@ from typing import Dict, Optional, Sequence, Union, Tuple
 import datasets
 import fire
 import pandas as pd
+import numpy as np
 
 from alpaca_farm import data_preprocessor, distributed_utils, utils
 from alpaca_farm.inference import decode, score
@@ -69,9 +70,16 @@ def run_decode(
         If num_return_sequences > 1, each 'completion' is a list of strings. Otherwise, it is a string.
     """
     dataset = datasets.load_dataset(dataset_path, dataset_name)
-
+    df = pd.DataFrame(dataset[split])
+    if dataset_path == "argilla/news-summary":
+        input_preprocess_fn = lambda x: "-".join(x["text"].replace("\n", " ").split("(Reuters) -")[1:]).strip()
+        filter_fn = lambda x: x["input"] != '' and x["id"] is not None and len(x["input"].split()) < 750
+        id_map_fn = lambda x: {"id": x["id"]}
+        df["input"] = df.apply(input_preprocess_fn, axis=1)
+        df["instruction"] = ["Generate a one-sentence summary of this post."]*len(df)
+        df = df[df.apply(filter_fn, axis=1)]
     prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_data_frame(
-        df=pd.DataFrame(dataset[split]),
+        df=df,
         prompt_dict=utils.jload(prompt_dict_path),
     )
     prompts, list_dict_data = prompts[:max_instances], list_dict_data[:max_instances]
