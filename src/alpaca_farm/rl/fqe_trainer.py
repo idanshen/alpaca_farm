@@ -304,7 +304,7 @@ class FQETrainer(rl_trainer.RLTrainer):
         logger.warning(f"Start evaluation at step: {step_idx}", main_process_only=True)
 
         aggregated_loss = []
-        for batch in tqdm.tqdm(self.eval_dataloader, desc="Evaluating"):
+        for batch in tqdm.tqdm(self.eval_dataloader,  disable=not self.accelerator.is_main_process, desc="Evaluating"):
             queries, query_attn_masks, values = common.prepare_inputs(
                 common.unpack_dict(
                     batch,
