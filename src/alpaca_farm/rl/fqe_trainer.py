@@ -333,7 +333,7 @@ class FQETrainer(rl_trainer.RLTrainer):
 
         aggregated_loss = torch.cat(aggregated_loss, dim=0)
         loss = aggregated_loss.mean()
-        stats = dict(loss=loss)
+        stats = {'eval/mse': loss}
         if self.accelerator.is_main_process:
             self.accelerator.log(stats, step=step_idx)
 
