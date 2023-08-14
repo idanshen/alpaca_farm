@@ -30,7 +30,8 @@ if 'OPENAI_API_KEY' not in os.environ:
 else:
     decoding_kwargs = {}
 
-path_to_data = "/data/pulkitag/models/idanshen/alpaca_farm/sft/test/output.json"
+path_to_data = args.path_to_data
+
 if os.path.isfile(path_to_data):
     list_dict_data = jload(path_to_data)
 else:
