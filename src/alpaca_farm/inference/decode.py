@@ -22,11 +22,27 @@ import einops
 import torch
 import tqdm
 import transformers
+from transformers import LogitsProcessorList
 from peft import PeftModel
 
 from .. import common, constants, distributed_utils, logging, torch_ops, utils
 
 logger = logging.get_logger(__name__)
+
+class QLogitsProcessor(transformers.LogitsProcessor):
+    """
+    A hack class to process logits to integrate learned Q values
+
+    (currently assumes that the tokenizer for the policy and q model are the same)
+    """
+    def __init__(self, q_model):
+        # call super init
+        super().__init__()
+        self.q_model = q_model # assumes that q model is already moved to device (whether on 1 device or multiple)
+    
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+        # TODO (seungwook): may need to pass in mask as well?
+        return scores + self.q_model(input_ids).logits
 
 
 @dataclasses.dataclass
@@ -127,6 +143,7 @@ def decode_prompts_with_huggingface_given_model(
     seed: Optional[int] = None,
     communication_num_chunks=1,
     tokenization_batch_size=1000,
+    logits_processor: Optional[transformers.LogitsProcessor] = None,
     **decoding_kwargs,
 ) -> Union[List[List[str]], List[str]]:
     """Decode from a given model a sequence of string prompts."""
@@ -176,8 +193,8 @@ def decode_prompts_with_huggingface_given_model(
         source = common.prepare_inputs(source, device=device)
         inputs, attention_mask = source.input_ids, source.attention_mask
 
-        if batch_idx == 0:  # FSDP is buggy; we do a forward pass first to make it happy
-            model(input_ids=inputs, attention_mask=attention_mask)
+        # if batch_idx == 0:  # FSDP is buggy; we do a forward pass first to make it happy
+        #     model(input_ids=inputs, attention_mask=attention_mask)
 
         if (
             internal_batch_return_sequences is not None
@@ -199,6 +216,7 @@ def decode_prompts_with_huggingface_given_model(
                 internal_batch_sequences = model.generate(
                     inputs=inputs,
                     attention_mask=attention_mask,
+                    logits_processor=LogitsProcessorList([logits_processor]) if logits_processor else None,
                     **batch_generate_kwargs,
                 )
                 if not model.config.is_encoder_decoder:
@@ -227,7 +245,7 @@ def decode_prompts_with_huggingface_given_model(
                     f"num_return_sequences ({decoding_args.num_return_sequences}). Not batching over return sequences."
                 )
 
-            sequences = model.generate(inputs=inputs, attention_mask=attention_mask, **generate_kwargs)
+            sequences = model.generate(inputs=inputs, attention_mask=attention_mask, logits_processor=LogitsProcessorList[logits_processor] if logits_processor else None, **generate_kwargs)
             if not model.config.is_encoder_decoder:
                 sequences = sequences[:, inputs.shape[1] :]
             sequences = torch_ops.right_pad(sequences, (sequences.size(0), pad_to_length), value=tokenizer.pad_token_id)
@@ -291,10 +309,12 @@ def decode_prompts_with_huggingface(
     tf32=True,
     load_in_4_bits: bool = False,
     checkpoint_dir: Optional[str] = None,
+    q_checkpoint_dir: Optional[str] = None,
     model_and_tokenizer: Optional[Tuple] = None,
     force_multisample_format: bool = False,
     seed: Optional[int] = None,
     communication_num_chunks: int = 1,
+    logits_processor: Optional[transformers.LogitsProcessor] = None,
     **decoding_kwargs,
 ) -> Union[List[List[str]], List[str]]:
     """Decode from a huggingface model given a sequence of string prompts.
@@ -331,6 +351,19 @@ def decode_prompts_with_huggingface(
             load_in_4_bits=load_in_4_bits,
             checkpoint_dir=checkpoint_dir,
         )
+    
+    # TODO (seungwook): assumes that the policy and q model base are the same (may need to change)
+    if q_checkpoint_dir is not None:
+        q_model, _ = load_model_and_tokenizer_for_inference(
+            model_name_or_path=model_name_or_path,
+            cache_dir=cache_dir,
+            model_kwargs=dict(torch_dtype=utils.convert_str_dtype_to_torch_dtype(mixed_precision)),
+            load_in_4_bits=load_in_4_bits,
+            checkpoint_dir=q_checkpoint_dir,
+        )
+
+        qlogits_processor = QLogitsProcessor(q_model=q_model)
+
     return decode_prompts_with_huggingface_given_model(
         model=model,
         tokenizer=tokenizer,
@@ -344,5 +377,6 @@ def decode_prompts_with_huggingface(
         force_multisample_format=force_multisample_format,
         seed=seed,
         communication_num_chunks=communication_num_chunks,
+        logits_processor=qlogits_processor,
         **decoding_kwargs,
     )
