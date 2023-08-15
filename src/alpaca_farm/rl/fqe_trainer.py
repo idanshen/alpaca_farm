@@ -233,7 +233,7 @@ class FQETrainer(rl_trainer.RLTrainer):
 
         # Compute the Q-values for the responses
         q_values = self.policy(queries, query_attn_masks, responses)["qvalues"]
-        q_values = torch.gather(q_values, dim=2, index=responses.unsqueeze(-1)).squeeze(-1)
+        q_preds = torch.gather(q_values, dim=2, index=responses.unsqueeze(-1)).squeeze(-1)
 
         if self.args.td_one:
             # compute TD(1) targets
@@ -242,25 +242,39 @@ class FQETrainer(rl_trainer.RLTrainer):
             # compute TD(0) targets
             with torch.no_grad():
                 #  get Q-values for next states by shift action indices by 1, and append zero at the end
-                next_q_values = q_values[:, 1:].detach()
-                next_q_values = torch.cat([next_q_values, torch.zeros(next_q_values.shape[0], 1).to(self.accelerator.device)], dim=1)
+                next_q_values = q_values[:, 1:, :].detach()
+                next_q_values = torch.cat([next_q_values, torch.zeros(next_q_values.shape[0], 1, len(self.policy_tokenizer)).to(self.accelerator.device)], dim=1)
+                rollouts_batch = {"queries": queries, "query_attn_masks": query_attn_masks, "responses": responses}
+                ref_policy_outputs = self.ref_policy(**rollouts_batch, temperature=self.args.temperature)
+                logits, = common.unpack_dict(ref_policy_outputs, keys=("logits",))
 
                 # 1-step TD target
-                target_q_values = rewards + self.args.gamma * next_q_values
+                target_q_values = rewards + self.args.gamma * torch.sum(next_q_values * logits.softmax(dim=-1), dim=2)
+                # loss is combined with TD(1) target
+                target_q_values = 0.5*target_q_values + 0.5*returns
 
-        qf_losses = (q_values - target_q_values) ** 2.0
+        qf_losses = (q_preds - target_q_values) ** 2.0
         loss = qf_losses.mean()
 
-        return_mean, return_var = returns.mean(), returns.var(unbiased=False)
-        value_mean, value_var = q_values.mean(), q_values.var(unbiased=False)
+        with torch.no_grad():
+            q_values_logits = q_values / self.args.temperature
+            entropy = -(q_values_logits.softmax(dim=-1) * q_values_logits.log_softmax(dim=-1)).sum(dim=-1).mean()
+            if self.args.td_one:
+                kl_div = 0.0
+            else:
+                kl_div = (q_values_logits.softmax(dim=-1) * (q_values_logits.log_softmax(dim=-1) - logits.log_softmax(dim=-1))).sum(dim=-1).mean()
+            return_mean, return_var = returns.mean(), returns.var(unbiased=False)
+            value_mean, value_var = q_preds.mean(), q_preds.var(unbiased=False)
 
         stats = dict(
             loss=dict(total=loss),
             returns=dict(mean=return_mean, var=return_var),
             val=dict(
-                error=((q_values - returns) ** 2).mean(),
+                error=((q_preds - returns) ** 2).mean(),
                 mean=value_mean,
                 var=value_var,
+                entropy=entropy,
+                kl_div=kl_div,
             ),
         )
         return loss, common.flatten_dict(stats, sep="/", postprocess_fn=lambda x: x.detach())
@@ -302,6 +316,7 @@ class FQETrainer(rl_trainer.RLTrainer):
         """Evaluate by query the Q-values of the model on the evaluation dataset."""
 
         logger.warning(f"Start evaluation at step: {step_idx}", main_process_only=True)
+        logger.warning(f"Number of evaluation steps: {len(self.eval_dataloader)}", main_process_only=True)
 
         aggregated_loss = []
         for batch in tqdm.tqdm(self.eval_dataloader,  disable=not self.accelerator.is_main_process, desc="Evaluating"):

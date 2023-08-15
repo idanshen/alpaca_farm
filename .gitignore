@@ -164,6 +164,7 @@ cython_debug/
 
 wandb/
 fqe/
+fqe_2/
 tmp/
 sft/
 spf/
