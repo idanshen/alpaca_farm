@@ -260,7 +260,7 @@ class FQETrainer(rl_trainer.RLTrainer):
             q_values_logits = q_values / self.args.temperature
             entropy = -(q_values_logits.softmax(dim=-1) * q_values_logits.log_softmax(dim=-1)).sum(dim=-1).mean()
             if self.args.td_one:
-                kl_div = 0.0
+                kl_div = torch.zeros_like(q_values_logits).mean()
             else:
                 kl_div = (q_values_logits.softmax(dim=-1) * (q_values_logits.log_softmax(dim=-1) - logits.log_softmax(dim=-1))).sum(dim=-1).mean()
             return_mean, return_var = returns.mean(), returns.var(unbiased=False)
