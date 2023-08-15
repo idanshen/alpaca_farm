@@ -126,7 +126,7 @@ def run_decode_augmented(
     checkpoint_dir: Optional[str] = None,
     q_checkpoint_dir: Optional[str] = None,
     model_and_tokenizer: Optional[Tuple] = None,
-    
+    beta: float = 1.0,
     seed: Optional[int] = None,
 ):
     """Decode samples from the policy language model augmented with a q value estimator.
@@ -141,7 +141,9 @@ def run_decode_augmented(
         max_instances: Maximum number of instances to decode.
         per_device_batch_size: Batch size for reranking for each device.
         temperature: Temperature for decoding.
-
+        checkpoint_dir: Optional path to the checkpoint directory for the policy model
+        q_checkpoint_dir: Optional path to the checkpoint directory for the q value estimator
+        beta: Beta value for the q value estimator
         max_new_tokens: Maximum number of new tokens to generate.
         seed: Random seed for decoding.
         num_return_sequences: Number of sequences to return per each prompt.
@@ -175,6 +177,7 @@ def run_decode_augmented(
         q_checkpoint_dir=q_checkpoint_dir,
         model_and_tokenizer=model_and_tokenizer,
         seed=seed,
+        beta=beta,
     )
 
     sample_mode = sample_mode_formatter.format(temperature=temperature, max_new_tokens=max_new_tokens, seed=seed)

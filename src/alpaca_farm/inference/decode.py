@@ -35,14 +35,15 @@ class QLogitsProcessor(transformers.LogitsProcessor):
 
     (currently assumes that the tokenizer for the policy and q model are the same)
     """
-    def __init__(self, q_model):
+    def __init__(self, q_model, beta):
         # call super init
         super().__init__()
         self.q_model = q_model # assumes that q model is already moved to device (whether on 1 device or multiple)
+        self.beta = beta
     
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
         # TODO (seungwook): may need to pass in mask as well?
-        return scores + self.q_model(input_ids).logits
+        return scores + self.beta * self.q_model(input_ids).logits
 
 
 @dataclasses.dataclass
@@ -314,7 +315,7 @@ def decode_prompts_with_huggingface(
     force_multisample_format: bool = False,
     seed: Optional[int] = None,
     communication_num_chunks: int = 1,
-    logits_processor: Optional[transformers.LogitsProcessor] = None,
+    beta: float = 1.0,
     **decoding_kwargs,
 ) -> Union[List[List[str]], List[str]]:
     """Decode from a huggingface model given a sequence of string prompts.
@@ -326,6 +327,9 @@ def decode_prompts_with_huggingface(
             the tokenizer.
         per_device_batch_size: The batch size per device for decoding.
         cache_dir: The directory to cache the huggingface model.
+        checkpoint_dir: The directory to load the policy checkpoint adapter from.
+        q_checkpoint_dir: The directory to load the q checkpoint adapter from.
+        beta: Beta value for q value estimaator weighting.
         mixed_precision: Whether to use mixed precision. If None, no casting will be performed.
         max_instances: The maximum number of prompts to decode.
         pad_to_length: The token length to pad the prompts. This is necessary for and only used in distributed decoding.
@@ -362,7 +366,7 @@ def decode_prompts_with_huggingface(
             checkpoint_dir=q_checkpoint_dir,
         )
 
-        qlogits_processor = QLogitsProcessor(q_model=q_model)
+        qlogits_processor = QLogitsProcessor(q_model=q_model, beta=beta)
 
     return decode_prompts_with_huggingface_given_model(
         model=model,

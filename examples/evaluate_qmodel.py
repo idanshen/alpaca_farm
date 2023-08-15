@@ -15,10 +15,18 @@ parser.add_argument('--q_checkpoint_dir', type=str, default=''
                     , help="The path to the checkpoint directory of the q model (adapter weights)")
 parser.add_argument('--path_to_data', type=str, default='./output.json'
                     , help='The path to the output json file')
-parser.add_argument('--num_return_sequences', type=int, default=1)
-parser.add_argument('--temp', type=float, default=0.7)
-parser.add_argument('--per_device_batch_size', type=int, default=12)
-parser.add_argument('--load_in_4_bits', type=bool, default=True)
+parser.add_argument('--num_return_sequences', type=int, default=1
+                    , help='The number of sequences to return from the decoder')
+parser.add_argument('--temp', type=float, default=0.7
+                    , help='The temperature to use for decoding')
+parser.add_argument('--per_device_batch_size', type=int, default=12
+                    , help='The batch size to use for decoding')
+parser.add_argument('--load_in_4_bits', type=bool, default=True
+                    , help='Whether to load the model in 4 bits')
+parser.add_argument('--beta', type=float, default=1.0
+                    , help='The beta value to use for weighting the q model')
+parser.add_argument('--exp_name', type=str, default='qmodel'
+                    , help='The name of the experiment')
 args = parser.parse_args()
 
 if 'OPENAI_API_KEY' not in os.environ:
@@ -42,11 +50,12 @@ else:
                                 temperature=args.temp, 
                                 per_device_batch_size=args.per_device_batch_size, 
                                 load_in_4_bits=args.load_in_4_bits,
+                                beta=args.beta,
                                 )
     jdump(list_dict_data, path_to_data)
 
 print("Finish generating data, start evaluating")
-alpaca_leaderboard(list_dict_data, is_print_metrics=True, annotators_config = "annotator_pool_v0/configs.yaml", name="my_sft")# , **decoding_kwargs)
+alpaca_leaderboard(list_dict_data, is_print_metrics=True, annotators_config = "annotator_pool_v0/configs.yaml", name=args.exp_name)# , **decoding_kwargs)
 
 """
                                         n_draws  n_total  n_wins  n_wins_base  standard_error  win_rate
