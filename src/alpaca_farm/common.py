@@ -256,10 +256,6 @@ def get_accelerate_sc_model(
     #     four_bits = False
         # may have to set quantization config to None as well
         # q_config = None
-    if model_name_or_path == 'Tristan/gpt2_reward_summarization':
-        four_bits = True #False
-        # may have to set quantization config to None as well
-        #q_config = None
 
     model = AutoModelForSequenceClassification.from_pretrained(
         model_name_or_path,
@@ -280,7 +276,7 @@ def get_accelerate_sc_model(
     setattr(model, 'model_parallel', True)
     setattr(model, 'is_parallelizable', True)
 
-    model.config.torch_dtype = torch.bfloat16 if bfloat16 else torch.float32
+    model.config.torch_dtype = torch.bfloat16 if bfloat16 else torch.float16
 
     model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=gradient_checkpointing)
     if gradient_checkpointing:
@@ -302,7 +298,7 @@ def get_accelerate_sc_model(
             module = module.to(torch.float32)
         if 'lm_head' in name or 'embed_tokens' in name:
             if hasattr(module, 'weight'):
-                if bfloat16 and module.weight.dtype == torch.float32:
+                if bfloat16 and module.weight.dtype == torch.float16:
                     module = module.to(torch.bfloat16)
     return model
 
