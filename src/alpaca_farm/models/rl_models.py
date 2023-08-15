@@ -246,7 +246,7 @@ class AutoregressiveQfunction(Qfunction):
         else:
             last_hidden_state = outputs.hidden_states[-1][:, queries.size(1) - 1 : -1,:]
         if last_hidden_state.dtype != torch.float16:
-            last_hidden_state = last_hidden_state.float16()
+            last_hidden_state = last_hidden_state.type(torch.float16)
         qvalues = self.q_head(last_hidden_state).squeeze(-1)
         if self.args.num_q_heads > 1:
             qvalues = qvalues.view(-1, self.args.num_q_heads, len(self.base_tokenizer))
