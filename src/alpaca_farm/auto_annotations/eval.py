@@ -1,7 +1,7 @@
 import json
 import logging
 from pathlib import Path
-from typing import Any, Optional, Sequence, Union
+from typing import Any, Optional, Sequence, Union, List
 
 import alpaca_eval.annotators as eval_annotators
 import alpaca_eval.utils as eval_utils
@@ -11,7 +11,7 @@ from alpaca_eval import metrics
 
 from .. import constants
 
-__all__ = ["alpaca_leaderboard", "PairwiseAutoAnnotator"]
+__all__ = ["alpaca_leaderboard", "PairwiseAutoAnnotator", "alpaca_leaderboard_general"]
 
 CURRENT_DIR = Path(__file__).parent
 ANNOTATORS_CONFIG_DIR = CURRENT_DIR / "annotators"
@@ -81,6 +81,68 @@ PRECOMPUTED_LEADERBOARD = {
     }
 }
 
+
+def alpaca_leaderboard_general(
+    path_or_all_outputs: List[Union[eval_utils.AnyData, eval_utils.AnyPath]],
+    annotators_config: eval_utils.AnyPath = "annotator_pool_v0/configs.yaml",
+    name: str = "Current method",
+    is_add_reference_methods: bool = True,
+    is_print_metrics: bool = False,
+    **kwargs,
+) -> pd.DataFrame:
+    """Add the given model to the Alpaca leaderboard, generalized version where the two models being compared are both provided,
+    instead of assuming that the baseline is the tatsu dataset on huggingface.
+
+    Parameters
+    ----------
+    path_or_all_outputs : list of (str or list of dict)
+        The outputs of the model to add to the leaderboard as a list of dictionaries, or a path to list of JSON. Each
+        dictionary (or row) should contain the following keys: `instruction`, `input`, and `output`.
+
+    annotators_config : str, optional
+        The path to the annotator's config file. For details see the docstring of `PairwiseAutoAnnotator`.
+
+    name : str, optional
+        The name of the model to add to the leaderboard.
+
+    is_add_reference_methods : bool, optional
+        Whether to add the Alpaca reference methods to the leaderboard.
+
+    is_print_metrics : bool, optional
+        Whether to print the metrics.
+
+    kwargs :
+        Additional arguments to pass to `PairwiseAutoAnnotator`.
+    """
+    try:
+        with open(path_or_all_outputs[0]) as f:
+            all_outputs1 = json.load(f)
+        with open(path_or_all_outputs[1]) as g:
+            all_outputs2 = json.load(g)    
+        
+        logging.info(f"Loaded outputs from {path_or_all_outputs[0] and path_or_all_outputs[1]}.")
+    except:
+        all_outputs1 = path_or_all_outputs[0]
+        all_outputs2 = path_or_all_outputs[1]
+
+    if is_add_reference_methods: # TODO (seungwook): check this
+        all_metrics = PRECOMPUTED_LEADERBOARD[annotators_config]
+    else:
+        all_metrics = dict()
+
+    outputs_1 = eval_utils.load_or_convert_to_dataframe(all_outputs1)
+    outputs_2 = eval_utils.load_or_convert_to_dataframe(all_outputs2)
+    annotator = PairwiseAutoAnnotator(annotators_config=annotators_config, **kwargs)
+    annotated = annotator.annotate_head2head(outputs_1=outputs_1, outputs_2=outputs_2)
+    all_metrics[name] = metrics.pairwise_to_winrate(preferences=[a["preference"] for a in annotated])
+
+    df_results = pd.DataFrame(all_metrics).T.sort_values(by="win_rate", ascending=False)
+
+    if is_print_metrics:
+        print(df_results.to_string(float_format="%.2f"))
+    else:
+        return df_results
+    
 
 # TODO: alpaca_leaderboard could also be replaced with alpaca_eval functions
 def alpaca_leaderboard(

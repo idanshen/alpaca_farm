@@ -3,7 +3,7 @@ import argparse
 
 from best_of_n import run_decode_augmented
 from alpaca_farm.utils import jload, jdump
-from alpaca_farm.auto_annotations import PairwiseAutoAnnotator, alpaca_leaderboard
+from alpaca_farm.auto_annotations import PairwiseAutoAnnotator, alpaca_leaderboard_general
 
 # Set up argparse to take in the model name and checkpoint dir
 parser = argparse.ArgumentParser()
@@ -13,7 +13,7 @@ parser.add_argument('--decoder_checkpoint_dir', type=str, default=''
                     , help="The path to the checkpoint directory of the decoder (adapter weigthts)")
 parser.add_argument('--q_checkpoint_dir', type=str, default=''
                     , help="The path to the checkpoint directory of the q model (adapter weights)")
-parser.add_argument('--path_to_data', type=str, default='./output.json'
+parser.add_argument('--path_to_result', type=str, default='./results.json'
                     , help='The path to the output json file')
 parser.add_argument('--num_return_sequences', type=int, default=1
                     , help='The number of sequences to return from the decoder')
@@ -38,24 +38,14 @@ if 'OPENAI_API_KEY' not in os.environ:
 else:
     decoding_kwargs = {}
 
-path_to_data = args.path_to_data
+if os.path.isfile(args.output_filepath1) and os.path.isfile(args.output_filepath2):
 
-if os.path.isfile(path_to_data):
-    list_dict_data = jload(path_to_data)
 else:
-    list_dict_data = run_decode_augmented(decoder_name_or_path=args.decoder_name_or_path,
-                                checkpoint_dir=args.decoder_checkpoint_dir,
-                                q_checkpoint_dir=args.q_checkpoint_dir,
-                                num_return_sequences=args.num_return_sequences, 
-                                temperature=args.temp, 
-                                per_device_batch_size=args.per_device_batch_size, 
-                                load_in_4_bits=args.load_in_4_bits,
-                                beta=args.beta,
-                                )
-    jdump(list_dict_data, path_to_data)
+    raise Exception('Output file(s) not found!')
+    
 
-print("Finished generating data")
-# alpaca_leaderboard(list_dict_data, is_print_metrics=True, annotators_config = "annotator_pool_v0/configs.yaml", name=args.exp_name)# , **decoding_kwargs)
+print("Finish generating data, start evaluating")
+alpaca_leaderboard_general[(list_dict_data, ], is_print_metrics=True, annotators_config = "annotator_pool_v0/configs.yaml", name=args.exp_name)# , **decoding_kwargs)
 
 """
                                         n_draws  n_total  n_wins  n_wins_base  standard_error  win_rate
