@@ -233,36 +233,37 @@ class FQETrainer(rl_trainer.RLTrainer):
 
         # Compute the Q-values for the responses
         q_values = self.policy(queries, query_attn_masks, responses)["qvalues"]
+        q_values_logits = q_values / self.args.temperature
         q_preds = torch.gather(q_values, dim=2, index=responses.unsqueeze(-1)).squeeze(-1)
 
-        if self.args.td_one:
-            # compute TD(1) targets
-            target_q_values = returns
-        else:
-            # compute TD(0) targets
-            with torch.no_grad():
+        with torch.no_grad():
+            # Sample rollouts using the reference policy.
+            rollouts_batch = {"queries": queries, "query_attn_masks": query_attn_masks, "responses": responses}
+            ref_policy_outputs = self.ref_policy(**rollouts_batch, temperature=self.args.temperature)
+            logits, = common.unpack_dict(ref_policy_outputs, keys=("logits",))
+            # Compute the KL-divergence between the reference policy and the Q-value induced policy
+            kl_div = (q_values_logits.softmax(dim=-1) * (
+                        q_values_logits.log_softmax(dim=-1) - logits.log_softmax(dim=-1))).sum(dim=-1).mean()
+
+            # Compute the Q-values for the next states
+            if self.args.td_one:
+                # compute TD(1) targets
+                target_q_values = returns
+            else:
+                # compute TD(0) targets
                 #  get Q-values for next states by shift action indices by 1, and append zero at the end
                 next_q_values = q_values[:, 1:, :].detach()
                 next_q_values = torch.cat([next_q_values, torch.zeros(next_q_values.shape[0], 1, len(self.policy_tokenizer)).to(self.accelerator.device)], dim=1)
-                rollouts_batch = {"queries": queries, "query_attn_masks": query_attn_masks, "responses": responses}
-                ref_policy_outputs = self.ref_policy(**rollouts_batch, temperature=self.args.temperature)
-                logits, = common.unpack_dict(ref_policy_outputs, keys=("logits",))
-
                 # 1-step TD target
                 target_q_values = rewards + self.args.gamma * torch.sum(next_q_values * logits.softmax(dim=-1), dim=2)
-                # loss is combined with TD(1) target
-                target_q_values = 0.5*target_q_values + 0.5*returns
+
+        cql_loss = q_values_logits.log_softmax(dim=-1).mean()
 
         qf_losses = (q_preds - target_q_values) ** 2.0
-        loss = qf_losses.mean()
+        loss = qf_losses.mean() + self.kl_ctl.value * cql_loss
 
         with torch.no_grad():
-            q_values_logits = q_values / self.args.temperature
             entropy = -(q_values_logits.softmax(dim=-1) * q_values_logits.log_softmax(dim=-1)).sum(dim=-1).mean()
-            if self.args.td_one:
-                kl_div = torch.zeros_like(q_values_logits).mean()
-            else:
-                kl_div = (q_values_logits.softmax(dim=-1) * (q_values_logits.log_softmax(dim=-1) - logits.log_softmax(dim=-1))).sum(dim=-1).mean()
             return_mean, return_var = returns.mean(), returns.var(unbiased=False)
             value_mean, value_var = q_preds.mean(), q_preds.var(unbiased=False)
 
