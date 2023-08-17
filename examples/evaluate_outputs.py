@@ -54,8 +54,8 @@ else:
                                 )
     jdump(list_dict_data, path_to_data)
 
-print("Finish generating data, start evaluating")
-alpaca_leaderboard(list_dict_data, is_print_metrics=True, annotators_config = "annotator_pool_v0/configs.yaml", name=args.exp_name)# , **decoding_kwargs)
+print("Finished generating data")
+# alpaca_leaderboard(list_dict_data, is_print_metrics=True, annotators_config = "annotator_pool_v0/configs.yaml", name=args.exp_name)# , **decoding_kwargs)
 
 """
                                         n_draws  n_total  n_wins  n_wins_base  standard_error  win_rate
