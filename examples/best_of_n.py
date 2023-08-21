@@ -70,10 +70,20 @@ def run_decode(
     """
     dataset = datasets.load_dataset(dataset_path, dataset_name)
 
-    prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_data_frame(
-        df=pd.DataFrame(dataset[split]),
-        prompt_dict=utils.jload(prompt_dict_path),
-    )
+    if dataset_path == 'argilla/news-summary' :
+        split_map = {"train": "test", "validation": "train", "eval": "train"} # swap train and validation b/c more train dataset is quite small and validation is bigger'
+        prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_dataset(
+            dataset_name=dataset_name,
+            dataset=dataset[split_map[split]],
+            prompt_dict=utils.jload(prompt_dict_path),
+        )
+    # TODO (seungwook): fix this for the new tasks
+    else:
+        prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_data_frame(
+            df=pd.DataFrame(dataset[split]),
+            prompt_dict=utils.jload(prompt_dict_path),
+        )
+    
     prompts, list_dict_data = prompts[:max_instances], list_dict_data[:max_instances]
 
     outputs = decode.decode_prompts_with_huggingface(
@@ -157,10 +167,20 @@ def run_decode_augmented(
     dataset = datasets.load_dataset(dataset_path, dataset_name)
 
     # TODO (seungwook): may need to fix list_dict_data as the new tasks don't have this defined
-    prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_data_frame(
-        df=pd.DataFrame(dataset[split]),
-        prompt_dict=utils.jload(prompt_dict_path),
-    )
+    if dataset_path == 'argilla/news-summary' :
+        split_map = {"train": "test", "validation": "train", "eval": "train"} # swap train and validation b/c more train dataset is quite small and validation is bigger'
+        prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_dataset(
+            dataset_name=dataset_name,
+            dataset=dataset[split_map[split]],
+            prompt_dict=utils.jload(prompt_dict_path),
+        )
+    # TODO (seungwook): fix this for the new tasks
+    else:
+        prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_data_frame(
+            df=pd.DataFrame(dataset[split]),
+            prompt_dict=utils.jload(prompt_dict_path),
+        )
+        
     prompts, list_dict_data = prompts[:max_instances], list_dict_data[:max_instances]
 
     outputs = decode.decode_prompts_with_huggingface(

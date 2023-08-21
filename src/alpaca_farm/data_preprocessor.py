@@ -28,6 +28,9 @@ from . import constants, logging, torch_ops, utils
 from .types import Tensor
 
 logger = logging.get_logger(__name__)
+INSTRUCTIONS = {
+    'argilla/news-summary': "Generate a one-sentence summary of this post.",
+}
 
 
 def format_prompt(example: dict, prompt_dict: dict) -> str:
@@ -77,6 +80,69 @@ def format_prompt_with_data_frame(
 
     if return_dict:
         return dict(prompts=prompts, list_dict_data=list_dict_data, metadata=metadata)
+    return prompts, list_dict_data, metadata
+
+def format_prompt_with_dataset(
+    dataset_name: str,
+    dataset: datasets.Dataset,
+    prompt_dict: dict,
+    return_dict=False,
+):
+    '''
+    Equivalent to format_prompt_with_data_frame but with huggingface dataset instead of pandas dataframe
+    we add a few filtering, preprocessing steps for specific datasets
+    '''
+    df = dataset # renaming for convenience
+    instruction = INSTRUCTIONS[dataset_name]
+
+    filter_fn = None
+    id_map_fn = None
+    input_preprocess_fn = None
+    if dataset_name == 'argilla/news-summary':
+        filter_fn = lambda x: x["text"] is not None and x["id"] is not None
+        id_map_fn = lambda x: {"id": x["id"]}
+        input_preprocess_fn = lambda x: "-".join(x["text"].replace("\n", " ").split("(Reuters) -")[1:]).strip()
+        # overriding max query length
+    elif dataset_name == 'openai/summarize_from_feedback':
+        filter_fn = lambda x: x["info"]["post"] is not None and x['info']["id"] is not None,
+        id_map_fn = lambda x: {"id": x["info"]["id"]}
+        input_preprocess_fn = lambda x: x["info"]["post"].replace("\n", " ")
+
+    else:
+        raise NotImplementedError(f'Filter, id map, and input preprocess functions for dataset {dataset_name} not implemented.')
+        
+    # remove empty instances
+    df_filtered = df.filter(
+        filter_fn,
+        batched=False,
+    )
+
+    logger.warning(
+        f"Filtered out {len(df) - len(df_filtered)} instances out of {len(df)} that "
+        f"are empty."
+    )
+
+    # remove duplicate queries
+    def remove_duplicate(duplicated_dataset):
+        initial_list = duplicated_dataset.map(id_map_fn)
+        _ , unique_indices = np.unique(initial_list["id"], return_index=True, axis=0)
+        filtered_dataset = duplicated_dataset.select(unique_indices.tolist())
+        return filtered_dataset
+
+    df_deduplicated = remove_duplicate(df_filtered)
+
+    logger.warning(
+        f"Deduplicated {len(df_filtered) - len(df_deduplicated)} instances out of {len(df_filtered)} that "
+        f"are duplicates."
+    )
+
+    df_deduplicated = pd.DataFrame(df_deduplicated)
+
+    # format instruction and input into prompts
+    prompts = [format_prompt(example={'instruction': instruction, 'input': input_preprocess_fn(row)}, prompt_dict=prompt_dict) for _, row in df_deduplicated.iterrows()]
+    list_dict_data = [{'instruction': instruction, 'input': input_preprocess_fn(row)} for _, row in df_deduplicated.iterrows()]
+    metadata = {"prompt_dict": prompt_dict}
+
     return prompts, list_dict_data, metadata
 
 
@@ -434,6 +500,107 @@ class SummaryQueryDataset(Dataset):
 
         if df_postprocessor is not None:
             df = df_postprocessor(df)
+
+        instruction = "Generate a one-sentence summary of this post."
+
+        filter_fn = None
+        id_map_fn = None
+        input_preprocess_fn = None
+        if dataset_name == 'argilla/news-summary':
+            filter_fn = lambda x: x["text"] is not None and x["id"] is not None
+            id_map_fn = lambda x: {"id": x["id"]}
+            input_preprocess_fn = lambda x: "-".join(x["text"].replace("\n", " ").split("(Reuters) -")[1:]).strip()
+            # overriding max query length
+        elif dataset_name == 'openai/summarize_from_feedback':
+            filter_fn = lambda x: x["info"]["post"] is not None and x['info']["id"] is not None,
+            id_map_fn = lambda x: {"id": x["info"]["id"]}
+            input_preprocess_fn = lambda x: x["info"]["post"].replace("\n", " ")
+
+        else:
+            raise NotImplementedError(f'Filter, id map, and input preprocess functions for dataset {dataset_name} not implemented.')
+        
+        # remove empty instances
+        df_filtered = df.filter(
+            filter_fn,
+            batched=False,
+        )
+
+        logger.warning(
+            f"Filtered out {len(df) - len(df_filtered)} instances out of {len(df)} that "
+            f"are empty."
+        )
+
+        # remove duplicate queries
+        def remove_duplicate(duplicated_dataset):
+            initial_list = duplicated_dataset.map(id_map_fn)
+            _ , unique_indices = np.unique(initial_list["id"], return_index=True, axis=0)
+            filtered_dataset = duplicated_dataset.select(unique_indices.tolist())
+            return filtered_dataset
+
+        df_deduplicated = remove_duplicate(df_filtered)
+
+        logger.warning(
+            f"Deduplicated {len(df_filtered) - len(df_deduplicated)} instances out of {len(df_filtered)} that "
+            f"are duplicates."
+        )
+
+        df_deduplicated = pd.DataFrame(df_deduplicated)
+
+        # format instruction and input into prompts
+        prompts = [format_prompt(example={'instruction': instruction, 'input': input_preprocess_fn(row)}, prompt_dict=prompt_dict) for _, row in df_deduplicated.iterrows()]
+        if prompt_postprocessor is not None:
+            prompts = [prompt_postprocessor(prompt) for prompt in prompts]
+
+        # tokenize and left-pad queries
+        queries = [tokenizer(prompt, return_tensors="pt", truncation=False).input_ids[0] for prompt in prompts]
+        
+        # filter based on query max length
+        filtered_queries = [query for query in queries if len(query) <= query_len]
+        logger.warning(
+            f"Filtered out {len(queries) - len(filtered_queries)} instances out of {len(queries)} that "
+            f"exceed length limit. These examples are not used for training, but will still be used in evaluation. "
+        )
+
+        queries = torch.stack(
+            [
+                torch_ops.left_pad(query, target_size=(query_len,), value=tokenizer.pad_token_id)
+                for query in filtered_queries
+            ]
+        )
+
+        self.queries = queries
+        self.query_attn_masks = queries.ne(tokenizer.pad_token_id).long()
+
+        # Auxiliary data.
+        self.prompts = prompts
+        self.list_dict_data = None
+
+        # Preprocessing functions
+        self.filter_fn = filter_fn
+        self.id_map_fn = id_map_fn
+        self.input_preprocess_fn = input_preprocess_fn
+
+    def __getitem__(self, i):
+        return dict(queries=self.queries[i], query_attn_masks=self.query_attn_masks[i])
+
+    def __len__(self):
+        return len(self.queries)
+    
+class SummaryQueryResponseDataset(Dataset):
+    """News/Reddit summarization dataset that emits tokenized left-padded queries and generated responses"""
+
+    def __init__(
+        self,
+        df: datasets.Dataset,
+        prompt_dict: dict,
+        tokenizer: transformers.PreTrainedTokenizer,
+        query_len: int,
+        df_postprocessor: Optional[Callable] = None,
+        prompt_postprocessor: Optional[Callable] = None,
+        dataset_name: Optional[str] = None,
+        split: Optional[str] = None,
+    ):
+        super(SummaryQueryDataset, self).__init__()
 
         instruction = "Generate a one-sentence summary of this post."
 

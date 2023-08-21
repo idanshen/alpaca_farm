@@ -186,3 +186,8 @@ def make_rl_data_module(
         split='val',
     )
     return dict(train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=DataCollatorForStackableDataset())
+
+def make_eval_data_module(tokenizer: transformers.PreTrainedTokenizer):
+    """
+    creates a data module for evaluation of a trained model's generated samples
+    """
