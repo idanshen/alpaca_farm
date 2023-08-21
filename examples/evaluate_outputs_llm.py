@@ -7,25 +7,13 @@ from alpaca_farm.auto_annotations import PairwiseAutoAnnotator, alpaca_leaderboa
 
 # Set up argparse to take in the model name and checkpoint dir
 parser = argparse.ArgumentParser()
-parser.add_argument("--decoder_name_or_path", type=str, default="huggyllama/llama-7b"
-                    , help="The name or path of the decoder to use")
-parser.add_argument('--decoder_checkpoint_dir', type=str, default=''
-                    , help="The path to the checkpoint directory of the decoder (adapter weigthts)")
-parser.add_argument('--q_checkpoint_dir', type=str, default=''
-                    , help="The path to the checkpoint directory of the q model (adapter weights)")
+parser.add_argument('--output_filepath1', type=str, default='./outputs1.json'
+                    , help='The path to the output json file to load')
+parser.add_argument('--output_filepath2', type=str, default='./outputs2.json'
+                    , help='The path to the output json file to load')
 parser.add_argument('--path_to_result', type=str, default='./results.json'
                     , help='The path to the output json file')
-parser.add_argument('--num_return_sequences', type=int, default=1
-                    , help='The number of sequences to return from the decoder')
-parser.add_argument('--temp', type=float, default=0.7
-                    , help='The temperature to use for decoding')
-parser.add_argument('--per_device_batch_size', type=int, default=12
-                    , help='The batch size to use for decoding')
-parser.add_argument('--load_in_4_bits', type=bool, default=True
-                    , help='Whether to load the model in 4 bits')
-parser.add_argument('--beta', type=float, default=1.0
-                    , help='The beta value to use for weighting the q model')
-parser.add_argument('--exp_name', type=str, default='qmodel'
+parser.add_argument('--exp_name', type=str, default='eval_outputs_llm'
                     , help='The name of the experiment')
 args = parser.parse_args()
 
@@ -39,13 +27,14 @@ else:
     decoding_kwargs = {}
 
 if os.path.isfile(args.output_filepath1) and os.path.isfile(args.output_filepath2):
-
+    list_dict_data1 = jload(args.output_filepath1)
+    list_dict_data2 = jload(args.output_filepath2)
 else:
     raise Exception('Output file(s) not found!')
     
 
-print("Finish generating data, start evaluating")
-alpaca_leaderboard_general[(list_dict_data, ], is_print_metrics=True, annotators_config = "annotator_pool_v0/configs.yaml", name=args.exp_name)# , **decoding_kwargs)
+print("Finished loading outputs, start evaluating") # TODO (seungwook): fix config files
+alpaca_leaderboard_general([list_dict_data1, list_dict_data2], is_print_metrics=True, annotators_config = "annotator_pool_v0/configs.yaml", name=args.exp_name)# , **decoding_kwargs)
 
 """
                                         n_draws  n_total  n_wins  n_wins_base  standard_error  win_rate
