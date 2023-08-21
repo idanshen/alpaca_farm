@@ -1,7 +1,7 @@
 import os
 import argparse
 
-from best_of_n import run_decode_augmented
+from best_of_n import run_decode_augmented, run_decode
 from alpaca_farm.utils import jload, jdump
 from alpaca_farm.auto_annotations import PairwiseAutoAnnotator, alpaca_leaderboard
 
@@ -43,15 +43,26 @@ path_to_data = args.path_to_data
 if os.path.isfile(path_to_data):
     list_dict_data = jload(path_to_data)
 else:
-    list_dict_data = run_decode_augmented(decoder_name_or_path=args.decoder_name_or_path,
-                                checkpoint_dir=args.decoder_checkpoint_dir,
-                                q_checkpoint_dir=args.q_checkpoint_dir,
-                                num_return_sequences=args.num_return_sequences, 
-                                temperature=args.temp, 
-                                per_device_batch_size=args.per_device_batch_size, 
-                                load_in_4_bits=args.load_in_4_bits,
-                                beta=args.beta,
-                                )
+    print('Start generating data')
+    if args.q_checkpoint_dir == '':
+        print('No q model checkpoint dir is provided, using the default decoder model')
+
+        list_dict_data = run_decode(decoder_name_or_path=args.decoder_name_or_path,
+                                    checkpoint_dir=args.decoder_checkpoint_dir,
+                                    num_return_sequences=args.num_return_sequences, 
+                                    temperature=args.temp, 
+                                    per_device_batch_size=args.per_device_batch_size, 
+                                    load_in_4_bits=args.load_in_4bits)
+    else: 
+        list_dict_data = run_decode_augmented(decoder_name_or_path=args.decoder_name_or_path,
+                                    checkpoint_dir=args.decoder_checkpoint_dir,
+                                    q_checkpoint_dir=args.q_checkpoint_dir,
+                                    num_return_sequences=args.num_return_sequences, 
+                                    temperature=args.temp, 
+                                    per_device_batch_size=args.per_device_batch_size, 
+                                    load_in_4_bits=args.load_in_4_bits,
+                                    beta=args.beta,)
+    print('Saving generated data to {}'.format(path_to_data))
     jdump(list_dict_data, path_to_data)
 
 # print("Finish generating data, start evaluating")
