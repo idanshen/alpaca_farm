@@ -357,6 +357,7 @@ def decode_prompts_with_huggingface(
         )
     
     # TODO (seungwook): assumes that the policy and q model base are the same (may need to change)
+    qlogits_processor = None
     if q_checkpoint_dir is not None:
         q_model, _ = load_model_and_tokenizer_for_inference(
             model_name_or_path=model_name_or_path,
