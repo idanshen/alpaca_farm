@@ -17,11 +17,11 @@ class Arguments:
     decoder_checkpoint_dir: str = field(
         default="./", metadata={"help": "Path to a checkpoint directory of the decoder (adapter weights)."}),
     q_checkpoint_dir: str = field(
-        default=None, metadata={"help": "Path to a checkpoint directory of the q model (adapter weights)."}),
+        default='', metadata={"help": "Path to a checkpoint directory of the q model (adapter weights)."}),
     dataset_path: str = field(
-        default=None, metadata={"help": "Path to a HF dataset."}),
+        default='', metadata={"help": "Path to a HF dataset."}),
     dataset_name: str = field(
-        default=None, metadata={"help": "Name of the HF dataset."}),
+        default='', metadata={"help": "Name of the HF dataset."}),
     path_to_data: str = field(
         default="./output.json", metadata={"help": "Path to a checkpoint directory."}),
     num_return_sequences: int = field(
