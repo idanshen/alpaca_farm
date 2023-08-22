@@ -30,7 +30,7 @@ class Arguments:
         default=0.7, metadata={"help": "The temperature to use for decoding."})
     per_device_batch_size: int = field(
         default=12, metadata={"help": "The batch size to use for decoding."})
-    load_in_4_bits: bool = field(
+    load_in_4bits: bool = field(
         default=True, metadata={"help": "Whether to load the model in 4 bits."})
     beta: float = field(
         default=1.0, metadata={"help": "The beta value to use for weighting the q model."})
