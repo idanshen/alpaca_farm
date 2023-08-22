@@ -19,29 +19,29 @@ Arguments for the script
 @dataclass
 class Arguments:
     reward_model_name_or_path: str = field(
-        default="huggyllama/llama-7b", metadata={"help": "Name to a huggingface native pretrained model or path to a model on disk."}),
+        default="huggyllama/llama-7b", metadata={"help": "Name to a huggingface native pretrained model or path to a model on disk."})
     reward_model_checkpoint_dir: str = field(
-        default="./", metadata={"help": "Path to a checkpoint directory."}),
+        default="./", metadata={"help": "Path to a checkpoint directory."})
     output_filepath: str = field(
-        default="./outputs.json", metadata={"help": "Path to a checkpoint directory."}),
+        default="./outputs.json", metadata={"help": "Path to a checkpoint directory."})
     path_to_result: str = field(
-        default="./results.json", metadata={"help": "The path to the output json file."}),
+        default="./results.json", metadata={"help": "The path to the output json file."})
     per_device_batch_size: int = field(
-        default=12, metadata={"help": "The path to the output json file."}),
+        default=12, metadata={"help": "The path to the output json file."})
     load_in_4_bits: bool = field(
-        default=True, metadata={"help": "Whether to load the model in 4 bits."}),
-    four_bits: bool = field(default=True, metadata={"help": "If True, uses 4-bit quantization."}),
-    flash_attn: bool = field(default=False, metadata={"help": "If True, uses Flash Attention."}),
+        default=True, metadata={"help": "Whether to load the model in 4 bits."})
+    four_bits: bool = field(default=True, metadata={"help": "If True, uses 4-bit quantization."})
+    flash_attn: bool = field(default=False, metadata={"help": "If True, uses Flash Attention."})
     bfloat16: bool = field(
-        default=False, metadata={"help": "If True, uses bfloat16. If lora and four_bits are True, bfloat16 is used for the lora weights."}),
-    use_lora: bool = field(default=True, metadata={"help": "If True, uses LoRA."}),
+        default=False, metadata={"help": "If True, uses bfloat16. If lora and four_bits are True, bfloat16 is used for the lora weights."})
+    use_lora: bool = field(default=True, metadata={"help": "If True, uses LoRA."})
     transformer_cache_dir: str = field(
         default=None,
         metadata={
             "help": "Path to a directory where transformers will cache the model. "
             "If None, transformers will use the default cache directory."
-        },),
-    exp_name: str = field(default="eval_outputs_rm", metadata={"help": "The name of the experiment."}),
+        },)
+    exp_name: str = field(default="eval_outputs_rm", metadata={"help": "The name of the experiment."})
 
 
 def make_reward_model(args, is_trainable=False):
