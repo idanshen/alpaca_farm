@@ -30,7 +30,7 @@ class Arguments:
         default=0.7, metadata={"help": "The temperature to use for decoding."})
     per_device_batch_size: int = field(
         default=12, metadata={"help": "The batch size to use for decoding."})
-    load_in_4bits: bool = field(
+    load_in_4_bits: bool = field(
         default=True, metadata={"help": "Whether to load the model in 4 bits."})
     beta: float = field(
         default=1.0, metadata={"help": "The beta value to use for weighting the q model."})
@@ -55,7 +55,7 @@ if __name__ == "__main__":
                                         num_return_sequences=args.num_return_sequences, 
                                         temperature=args.temp, 
                                         per_device_batch_size=args.per_device_batch_size, 
-                                        load_in_4_bits=args.load_in_4bits)
+                                        load_in_4_bits=args.load_in_4_bits)
         else: 
             list_dict_data = run_decode_augmented(decoder_name_or_path=args.decoder_name_or_path,
                                         checkpoint_dir=args.decoder_checkpoint_dir,

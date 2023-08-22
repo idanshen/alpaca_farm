@@ -28,8 +28,6 @@ class Arguments:
         default="./results.json", metadata={"help": "The path to the output json file."})
     per_device_batch_size: int = field(
         default=12, metadata={"help": "The path to the output json file."})
-    load_in_4bits: bool = field(
-        default=True, metadata={"help": "Whether to load the model in 4 bits."})
     four_bits: bool = field(default=True, metadata={"help": "If True, uses 4-bit quantization."})
     flash_attn: bool = field(default=False, metadata={"help": "If True, uses Flash Attention."})
     bfloat16: bool = field(
