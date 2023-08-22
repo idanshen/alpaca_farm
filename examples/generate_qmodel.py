@@ -30,7 +30,7 @@ class Arguments:
         default=True, metadata={"help": "Whether to load the model in 4 bits."}),
     beta: float = field(
         default=1.0, metadata={"help": "The beta value to use for weighting the q model."}),
-    exp_name: str = field(default="qmodel", metadata={"help": "The name of the experiment."}),
+
 
 if __name__ == "__main__":
     # parse arguments
