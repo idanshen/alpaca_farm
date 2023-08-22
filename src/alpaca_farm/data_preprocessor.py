@@ -83,7 +83,7 @@ def format_prompt_with_data_frame(
     return prompts, list_dict_data, metadata
 
 def format_prompt_with_dataset(
-    dataset_name: str,
+    dataset_path: str,
     dataset: datasets.Dataset,
     prompt_dict: dict,
     return_dict=False,
@@ -93,23 +93,23 @@ def format_prompt_with_dataset(
     we add a few filtering, preprocessing steps for specific datasets
     '''
     df = dataset # renaming for convenience
-    instruction = INSTRUCTIONS[dataset_name]
+    instruction = INSTRUCTIONS[dataset_path]
 
     filter_fn = None
     id_map_fn = None
     input_preprocess_fn = None
-    if dataset_name == 'argilla/news-summary':
+    if dataset_path == 'argilla/news-summary':
         filter_fn = lambda x: x["text"] is not None and x["id"] is not None
         id_map_fn = lambda x: {"id": x["id"]}
         input_preprocess_fn = lambda x: "-".join(x["text"].replace("\n", " ").split("(Reuters) -")[1:]).strip()
         # overriding max query length
-    elif dataset_name == 'openai/summarize_from_feedback':
+    elif dataset_path == 'openai/summarize_from_feedback':
         filter_fn = lambda x: x["info"]["post"] is not None and x['info']["id"] is not None,
         id_map_fn = lambda x: {"id": x["info"]["id"]}
         input_preprocess_fn = lambda x: x["info"]["post"].replace("\n", " ")
 
     else:
-        raise NotImplementedError(f'Filter, id map, and input preprocess functions for dataset {dataset_name} not implemented.')
+        raise NotImplementedError(f'Filter, id map, and input preprocess functions for dataset {dataset_path} not implemented.')
         
     # remove empty instances
     df_filtered = df.filter(

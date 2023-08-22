@@ -170,7 +170,7 @@ def run_decode_augmented(
     if dataset_path == 'argilla/news-summary' :
         split_map = {"train": "test", "validation": "train", "eval": "train"} # swap train and validation b/c more train dataset is quite small and validation is bigger'
         prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_dataset(
-            dataset_name=dataset_name,
+            dataset_path=dataset_path,
             dataset=dataset[split_map[split]],
             prompt_dict=utils.jload(prompt_dict_path),
         )
