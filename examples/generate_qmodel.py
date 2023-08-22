@@ -1,69 +1,78 @@
 import os
 import argparse
 
+from dataclasses import dataclass, field
+
+import transformers
 from best_of_n import run_decode_augmented, run_decode
 from alpaca_farm.utils import jload, jdump
 from alpaca_farm.auto_annotations import PairwiseAutoAnnotator, alpaca_leaderboard
 
-# Set up argparse to take in the model name and checkpoint dir
-parser = argparse.ArgumentParser()
-parser.add_argument("--decoder_name_or_path", type=str, default="huggyllama/llama-7b"
-                    , help="The name or path of the decoder to use")
-parser.add_argument('--decoder_checkpoint_dir', type=str, default=''
-                    , help="The path to the checkpoint directory of the decoder (adapter weigthts)")
-parser.add_argument('--q_checkpoint_dir', type=str, default=''
-                    , help="The path to the checkpoint directory of the q model (adapter weights)")
-parser.add_argument('--path_to_data', type=str, default='./output.json'
-                    , help='The path to the output json file')
-parser.add_argument('--num_return_sequences', type=int, default=1
-                    , help='The number of sequences to return from the decoder')
-parser.add_argument('--temp', type=float, default=0.7
-                    , help='The temperature to use for decoding')
-parser.add_argument('--per_device_batch_size', type=int, default=12
-                    , help='The batch size to use for decoding')
-parser.add_argument('--load_in_4_bits', type=bool, default=True
-                    , help='Whether to load the model in 4 bits')
-parser.add_argument('--beta', type=float, default=1.0
-                    , help='The beta value to use for weighting the q model')
-parser.add_argument('--exp_name', type=str, default='qmodel'
-                    , help='The name of the experiment')
-args = parser.parse_args()
 
-if 'OPENAI_API_KEY' not in os.environ:
-    decoding_kwargs = dict(
-        openai_api_key = "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",
-        # openai_organization_ids = ["MIT"],
-    )
-    assert decoding_kwargs["openai_api_key"] is not None, "OPENAI_API_KEY not found you should set it in environment or above"
-else:
-    decoding_kwargs = {}
+# convert the argparse into a dataclass
+@dataclass
+class Arguments:
+    decoder_name_or_path: str = field(
+        default="huggyllama/llama-7b", metadata={"help": "Name to a huggingface native pretrained model or path to a model on disk."}),
+    decoder_checkpoint_dir: str = field(
+        default="./", metadata={"help": "Path to a checkpoint directory of the decoder (adapter weights)."}),
+    q_checkpoint_dir: str = field(
+        default="./", metadata={"help": "Path to a checkpoint directory of the q model (adapter weights)."}),
+    path_to_data: str = field(
+        default="./output.json", metadata={"help": "Path to a checkpoint directory."}),
+    num_return_sequences: int = field(
+        default=1, metadata={"help": "The number of sequences to return from the decoder."}),
+    temp: float = field(
+        default=0.7, metadata={"help": "The temperature to use for decoding."}),
+    per_device_batch_size: int = field(
+        default=12, metadata={"help": "The batch size to use for decoding."}),
+    load_in_4_bits: bool = field(
+        default=True, metadata={"help": "Whether to load the model in 4 bits."}),
+    beta: float = field(
+        default=1.0, metadata={"help": "The beta value to use for weighting the q model."}),
+    exp_name: str = field(default="qmodel", metadata={"help": "The name of the experiment."}),
 
-path_to_data = args.path_to_data
+if __name__ == "__main__":
+    # parse arguments
+    parser = transformers.HfArgumentParser(Arguments)
+    args, = parser.parse_args_into_dataclasses()
 
-if os.path.isfile(path_to_data):
-    list_dict_data = jload(path_to_data)
-else:
-    print('Start generating data')
-    if args.q_checkpoint_dir == '':
-        print('No q model checkpoint dir is provided, using the default decoder model')
 
-        list_dict_data = run_decode(decoder_name_or_path=args.decoder_name_or_path,
-                                    checkpoint_dir=args.decoder_checkpoint_dir,
-                                    num_return_sequences=args.num_return_sequences, 
-                                    temperature=args.temp, 
-                                    per_device_batch_size=args.per_device_batch_size, 
-                                    load_in_4_bits=args.load_in_4bits)
-    else: 
-        list_dict_data = run_decode_augmented(decoder_name_or_path=args.decoder_name_or_path,
-                                    checkpoint_dir=args.decoder_checkpoint_dir,
-                                    q_checkpoint_dir=args.q_checkpoint_dir,
-                                    num_return_sequences=args.num_return_sequences, 
-                                    temperature=args.temp, 
-                                    per_device_batch_size=args.per_device_batch_size, 
-                                    load_in_4_bits=args.load_in_4_bits,
-                                    beta=args.beta,)
-    print('Saving generated data to {}'.format(path_to_data))
-    jdump(list_dict_data, path_to_data)
+    if 'OPENAI_API_KEY' not in os.environ:
+        decoding_kwargs = dict(
+            openai_api_key = "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",
+            # openai_organization_ids = ["MIT"],
+        )
+        assert decoding_kwargs["openai_api_key"] is not None, "OPENAI_API_KEY not found you should set it in environment or above"
+    else:
+        decoding_kwargs = {}
+
+    path_to_data = args.path_to_data
+
+    if os.path.isfile(path_to_data):
+        list_dict_data = jload(path_to_data)
+    else:
+        print('Start generating data')
+        if args.q_checkpoint_dir == '':
+            print('No q model checkpoint dir is provided, using the default decoder model')
+
+            list_dict_data = run_decode(decoder_name_or_path=args.decoder_name_or_path,
+                                        checkpoint_dir=args.decoder_checkpoint_dir,
+                                        num_return_sequences=args.num_return_sequences, 
+                                        temperature=args.temp, 
+                                        per_device_batch_size=args.per_device_batch_size, 
+                                        load_in_4_bits=args.load_in_4bits)
+        else: 
+            list_dict_data = run_decode_augmented(decoder_name_or_path=args.decoder_name_or_path,
+                                        checkpoint_dir=args.decoder_checkpoint_dir,
+                                        q_checkpoint_dir=args.q_checkpoint_dir,
+                                        num_return_sequences=args.num_return_sequences, 
+                                        temperature=args.temp, 
+                                        per_device_batch_size=args.per_device_batch_size, 
+                                        load_in_4_bits=args.load_in_4_bits,
+                                        beta=args.beta,)
+        print('Saving generated data to {}'.format(path_to_data))
+        jdump(list_dict_data, path_to_data)
 
 # print("Finish generating data, start evaluating")
 # alpaca_leaderboard(list_dict_data, is_print_metrics=True, annotators_config = "annotator_pool_v0/configs.yaml", name=args.exp_name)# , **decoding_kwargs)
