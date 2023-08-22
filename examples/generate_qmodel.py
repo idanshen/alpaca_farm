@@ -1,5 +1,6 @@
 import os
 import argparse
+from typing import Optional
 
 from dataclasses import dataclass, field
 
@@ -16,7 +17,7 @@ class Arguments:
         default="huggyllama/llama-7b", metadata={"help": "Name to a huggingface native pretrained model or path to a model on disk."}),
     decoder_checkpoint_dir: str = field(
         default="./", metadata={"help": "Path to a checkpoint directory of the decoder (adapter weights)."}),
-    q_checkpoint_dir: str = field(
+    q_checkpoint_dir: Optional[str] = field(
         default='', metadata={"help": "Path to a checkpoint directory of the q model (adapter weights)."}),
     dataset_path: str = field(
         default='', metadata={"help": "Path to a HF dataset."}),
