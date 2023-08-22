@@ -17,7 +17,7 @@ class Arguments:
     decoder_checkpoint_dir: str = field(
         default="./", metadata={"help": "Path to a checkpoint directory of the decoder (adapter weights)."}),
     q_checkpoint_dir: str = field(
-        default="./", metadata={"help": "Path to a checkpoint directory of the q model (adapter weights)."}),
+        default=None, metadata={"help": "Path to a checkpoint directory of the q model (adapter weights)."}),
     dataset_path: str = field(
         default=None, metadata={"help": "Path to a HF dataset."}),
     dataset_name: str = field(
@@ -45,7 +45,7 @@ if __name__ == "__main__":
         print('Output file already exists, skipping generating data')
     else:
         print('Start generating data')
-        if args.q_checkpoint_dir == '':
+        if args.q_checkpoint_dir is None:
             print('No q model checkpoint dir is provided, using the default decoder model')
 
             list_dict_data = run_decode(decoder_name_or_path=args.decoder_name_or_path,
