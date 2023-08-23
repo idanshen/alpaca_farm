@@ -1,6 +1,9 @@
 import os
 import argparse
 
+import transformers
+from dataclasses import dataclass, field
+
 from best_of_n import run_decode_augmented
 from alpaca_farm.utils import jload, jdump
 from alpaca_farm.auto_annotations import PairwiseAutoAnnotator, alpaca_leaderboard_general
@@ -16,6 +19,18 @@ parser.add_argument('--path_to_result', type=str, default='./results.json'
 parser.add_argument('--exp_name', type=str, default='eval_outputs_llm'
                     , help='The name of the experiment')
 args = parser.parse_args()
+
+# convert into a dataclass
+@dataclass
+class Arguments:
+    output_filepath1: str = field(
+        default="./outputs1.json", metadata={"help": "Path to a checkpoint directory."}),
+    output_filepath2: str = field(
+        default="./outputs2.json", metadata={"help": "Path to a checkpoint directory."}),
+    path_to_result: str = field(
+        default="./results.json", metadata={"help": "The path to the output json file."}),
+    exp_name: str = field(default="eval_outputs_llm", metadata={"help": "The name of the experiment."}),
+
 
 if 'OPENAI_API_KEY' not in os.environ:
     decoding_kwargs = dict(
