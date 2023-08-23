@@ -176,8 +176,8 @@ def decode_prompts_with_huggingface_given_model(
         source = common.prepare_inputs(source, device=device)
         inputs, attention_mask = source.input_ids, source.attention_mask
 
-        if batch_idx == 0:  # FSDP is buggy; we do a forward pass first to make it happy
-            model(input_ids=inputs, attention_mask=attention_mask)
+        # if batch_idx == 0:  # FSDP is buggy; we do a forward pass first to make it happy
+        #     model(input_ids=inputs, attention_mask=attention_mask)
 
         if (
             internal_batch_return_sequences is not None

@@ -399,7 +399,9 @@ def _make_left_padded_tokenizer(
     if model_name_or_path == "huggyllama/llama-7b":
         tokenizer.pad_token_id = 0
     else:
-        tokenizer.pad_token_id = tokenizer.eos_token_id
+        if tokenizer.pad_token_id is None:
+            tokenizer.pad_token_id = tokenizer.eos_token_id
+            
     return tokenizer
 
 
