@@ -14,7 +14,7 @@
 
 import copy
 import dataclasses
-from typing import Callable, Dict, Optional, Sequence, Union
+from typing import Callable, Dict, Optional, Sequence, Union, List
 
 import einops
 import pandas as pd
@@ -867,6 +867,49 @@ class QueryResponseDataset(Dataset):
 
     def __getitem__(self, i):
         return dict(queries=self.queries[i], responses=self.responses[i], query_attn_masks=self.query_attn_masks[i])
+
+    def __len__(self):
+        return len(self.queries)
+
+
+class OutputValuesDataset(Dataset):
+    """Dataset that emits tokenized left-padded texts (queries and partial response combined) and estimated values for them."""
+
+    def __init__(
+        self,
+        list_dict_data: List[dict],
+        tokenizer: transformers.PreTrainedTokenizer,
+        query_len: int,
+        prompt_postprocessor: Optional[Callable] = None,
+    ):
+        super(OutputValuesDataset, self).__init__()
+
+        texts = [dict_data['text'] for dict_data in list_dict_data]
+        values = [float(dict_data['reward']) for dict_data in list_dict_data]
+
+        if prompt_postprocessor is not None:
+            texts = [prompt_postprocessor(text) for text in texts]
+
+        queries = [tokenizer(text, return_tensors="pt", truncation=False).input_ids[0] for text in texts]
+        filtered_queries = [query for query in queries if len(query) <= query_len]
+        logger.warning(
+            f"Filtered out {len(queries) - len(filtered_queries)} instances out of {len(queries)} that "
+            f"exceed length limit. These examples are not used for training, but will still be used in evaluation. "
+        )
+
+        queries = torch.stack(
+            [
+                torch_ops.left_pad(query, target_size=(query_len,), value=tokenizer.pad_token_id)
+                for query in filtered_queries
+            ]
+        )
+
+        self.queries = queries
+        self.query_attn_masks = queries.ne(tokenizer.pad_token_id).long()
+        self.values = torch.tensor(values)
+
+    def __getitem__(self, i):
+        return dict(queries=self.queries[i], query_attn_masks=self.query_attn_masks[i], values=self.values[i])
 
     def __len__(self):
         return len(self.queries)

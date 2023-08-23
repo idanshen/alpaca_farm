@@ -164,6 +164,7 @@ cython_debug/
 
 wandb/
 fqe/
+fqe_2/
 tmp/
 sft/
 spf/
@@ -175,5 +176,10 @@ examples/tmp/
 tmp_fqe/
 tmp_fqe_2/
 pretrained_models/ppo_news_summarization
-
+ppo_2/
 ppo/
+examples/Untitled.ipynb
+nohup.out
+fqe_cql_2/
+
+fqe_cql/

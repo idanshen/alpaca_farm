@@ -214,7 +214,7 @@ class Qfunction(nn.Module, abc.ABC):
         self.base_model = base_model
         self.base_tokenizer = base_tokenizer
         hidden_size = common.get_transformer_hidden_size(base_model)
-        q_head = torch.nn.Linear(hidden_size, len(base_tokenizer))
+        q_head = torch.nn.Linear(hidden_size, len(base_tokenizer)*self.args.num_q_heads, dtype=torch.float16)
         q_head.weight.data.zero_()
         q_head.bias.data.zero_()
         self.q_head = q_head.to(list(base_model.parameters())[-1].device)
@@ -227,8 +227,11 @@ class Qfunction(nn.Module, abc.ABC):
 
 
 class AutoregressiveQfunction(Qfunction):
-    def forward(self, queries: Tensor, query_attn_masks: Tensor, responses: Tensor) -> Dict[str, Tensor]:
-        sequences = torch.cat([queries, responses], dim=1)
+    def forward(self, queries: Tensor, query_attn_masks: Tensor, responses: Optional[Tensor] = None, only_last: bool = False) -> Dict[str, Tensor]:
+        if responses is not None:
+            sequences = torch.cat([queries, responses], dim=1)
+        else:
+            sequences = queries
         sequence_attn_masks = sequences.ne(self.base_tokenizer.pad_token_id)
 
         inputs = self.base_model.prepare_inputs_for_generation(
@@ -238,10 +241,15 @@ class AutoregressiveQfunction(Qfunction):
         )
         outputs = self.base_model.model(**inputs, output_hidden_states=True)
 
-        last_hidden_state = outputs.hidden_states[-1][:, queries.size(1) - 1 : -1]
-        if last_hidden_state.dtype != torch.float32:
-            last_hidden_state = last_hidden_state.float()
+        if only_last:
+            last_hidden_state = outputs.hidden_states[-1][:, - 1 :,:]
+        else:
+            last_hidden_state = outputs.hidden_states[-1][:, queries.size(1) - 1 : -1,:]
+        if last_hidden_state.dtype != torch.float16:
+            last_hidden_state = last_hidden_state.type(torch.float16)
         qvalues = self.q_head(last_hidden_state).squeeze(-1)
+        if self.args.num_q_heads > 1:
+            qvalues = qvalues.view(-1, self.args.num_q_heads, len(self.base_tokenizer))
         return dict(qvalues=qvalues)
 
 

@@ -34,7 +34,7 @@ from .data_preprocessor import (
     QueryResponseDataset,
     SFTDataset,
     split_train_into_train_and_eval,
-    format_prompt,
+    format_prompt, OutputValuesDataset,
 )
 
 logger = logging.get_logger(__name__)
@@ -153,17 +153,27 @@ def make_rl_data_module(
     else: 
         dataset_cls = QueryDataset
 
-    train_dataset = dataset_cls(
-        df=train_df,
-        prompt_dict=prompt_dict,
-        tokenizer=tokenizer,
-        query_len=training_args.query_len,
-        prompt_postprocessor=prompt_postprocessor,
-        dataset_name=data_args.dataset_path,
-        split='train',
-    )
+    if not training_args.static_dataset:
+        train_dataset = dataset_cls(
+            df=train_df,
+            prompt_dict=prompt_dict,
+            tokenizer=tokenizer,
+            query_len=training_args.query_len,
+            prompt_postprocessor=prompt_postprocessor,
+            dataset_name=data_args.dataset_path,
+            split='train',
+        )
 
-    if training_args.static_dataset:
+        eval_dataset = dataset_cls(
+            df=eval_df,
+            prompt_dict=prompt_dict,
+            tokenizer=tokenizer,
+            query_len=training_args.query_len,
+            prompt_postprocessor=prompt_postprocessor,
+            dataset_name=data_args.dataset_path,
+            split='val',
+        )
+    else:
         path_to_data = training_args.static_dataset_path
         assert os.path.isfile(path_to_data)
         list_dict_data = jload(path_to_data)
@@ -176,13 +186,11 @@ def make_rl_data_module(
                                              query_len=training_args.query_len,
                                              response_len=training_args.response_len,)
 
-    eval_dataset = dataset_cls(
-        df=eval_df,
-        prompt_dict=prompt_dict,
-        tokenizer=tokenizer,
-        query_len=training_args.query_len,
-        prompt_postprocessor=prompt_postprocessor,
-        dataset_name=data_args.dataset_path,
-        split='val',
-    )
+        path_to_val_data = training_args.static_val_dataset_path
+        assert os.path.isfile(path_to_val_data)
+        list_dict_val_data = jload(path_to_val_data)
+        eval_dataset = OutputValuesDataset(tokenizer=tokenizer,
+                                           list_dict_data=list_dict_val_data,
+                                           query_len=training_args.query_len+training_args.response_len,)
+
     return dict(train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=DataCollatorForStackableDataset())
