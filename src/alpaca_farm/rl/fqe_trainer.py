@@ -257,10 +257,10 @@ class FQETrainer(rl_trainer.RLTrainer):
                 # 1-step TD target
                 target_q_values = rewards + self.args.gamma * torch.sum(next_q_values * logits.softmax(dim=-1), dim=2)
 
-        cql_loss = q_values_logits.log_softmax(dim=-1).mean()
+        cql_loss = torch.sum(logits.softmax(dim=-1) * q_values_logits.log_softmax(dim=-1), dim=2).mean()
 
         qf_losses = (q_preds - target_q_values) ** 2.0
-        loss = qf_losses.mean() + self.kl_ctl.value * cql_loss
+        loss = qf_losses.mean() - self.kl_ctl.value * cql_loss
 
         with torch.no_grad():
             entropy = -(q_values_logits.softmax(dim=-1) * q_values_logits.log_softmax(dim=-1)).sum(dim=-1).mean()
