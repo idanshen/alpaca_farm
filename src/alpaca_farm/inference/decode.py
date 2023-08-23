@@ -253,7 +253,7 @@ def decode_prompts_with_huggingface_given_model(
                     f"num_return_sequences ({decoding_args.num_return_sequences}). Not batching over return sequences."
                 )
 
-            sequences = model.generate(inputs=inputs, attention_mask=attention_mask, logits_processor=LogitsProcessorList[logits_processor] if logits_processor else None, **generate_kwargs)
+            sequences = model.generate(inputs=inputs, attention_mask=attention_mask, logits_processor=LogitsProcessorList([logits_processor]) if logits_processor else None, **generate_kwargs)
             if not model.config.is_encoder_decoder:
                 sequences = sequences[:, inputs.shape[1] :]
             sequences = torch_ops.right_pad(sequences, (sequences.size(0), pad_to_length), value=tokenizer.pad_token_id)
