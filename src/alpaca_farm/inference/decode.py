@@ -29,7 +29,7 @@ from .. import common, constants, distributed_utils, logging, torch_ops, utils
 
 logger = logging.get_logger(__name__)
 
-class QLogitsProcessor(transformers.LogitsProcessor):
+class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
     """
     A hack class to process logits to integrate learned Q values
 
@@ -44,6 +44,11 @@ class QLogitsProcessor(transformers.LogitsProcessor):
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
         # TODO (seungwook): may need to pass in mask as well?
         return scores + self.beta * self.q_model(input_ids).logits
+    
+    def _apply(self, fn):
+        super()._apply(fn)
+        self.q_model = self.q_model._apply(fn)
+        return self
 
 
 @dataclasses.dataclass
@@ -106,6 +111,8 @@ def load_model_and_tokenizer_for_inference(
         common.let_model_save_mem_when_zero_grad(model)
     else:
         model = model_cls.from_pretrained(model_name_or_path, **model_kwargs).eval()
+
+    # TODO (seungwook): this may need to be fixed depending on the model b/c currently assumes llama for pad_token_id=0
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_name_or_path, **tokenizer_kwargs)
     tokenizer.padding = 'longest'
     tokenizer.pad_token_id = 0
