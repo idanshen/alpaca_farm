@@ -26,6 +26,7 @@ from transformers import LogitsProcessorList
 from peft import PeftModel
 
 from .. import common, constants, distributed_utils, logging, torch_ops, utils
+from ..models.rl_models import make_qfunction_with_base_model, AutoregressiveQfunction
 
 logger = logging.get_logger(__name__)
 
@@ -35,7 +36,7 @@ class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
 
     (currently assumes that the tokenizer for the policy and q model are the same)
     """
-    def __init__(self, q_model, beta):
+    def __init__(self, q_model: AutoregressiveQfunction, beta: float):
         # call super init
         super().__init__()
         self.q_model = q_model # assumes that q model is already moved to device (whether on 1 device or multiple)
@@ -159,6 +160,7 @@ def decode_prompts_with_huggingface_given_model(
     if seed is not None:
         utils.manual_seed(seed)
 
+    model.eval() # TODO (seungwook): is there a reason why this is missing all over decode?
     torch.backends.cuda.matmul.allow_tf32 = torch.backends.cudnn.allow_tf32 = tf32  # noqa
 
     local_rank, world_size = distributed_utils.setup()
@@ -367,13 +369,17 @@ def decode_prompts_with_huggingface(
     # TODO (seungwook): assumes that the policy and q model base are the same (may need to change)
     qlogits_processor = None
     if q_checkpoint_dir is not None:
-        q_model, _ = load_model_and_tokenizer_for_inference(
+        q_model, q_tokenizer = load_model_and_tokenizer_for_inference(
             model_name_or_path=model_name_or_path,
             cache_dir=cache_dir,
             model_kwargs=dict(torch_dtype=utils.convert_str_dtype_to_torch_dtype(mixed_precision)),
             load_in_4_bits=load_in_4_bits,
             checkpoint_dir=q_checkpoint_dir,
         )
+        # TODO (seungwook): assumes that num_q_heads=1, but may need to change that
+        args = Namespace(num_q_heads=1)
+        q_model = make_qfunction_with_base_model(args, q_model, q_tokenizer)
+        q_model.load_state_dict(torch.load(q_checkpoint_dir + '/adapter_model/q_model.pt', map_location=q_model.device))
 
         qlogits_processor = QLogitsProcessor(q_model=q_model, beta=beta)
 
@@ -393,3 +399,7 @@ def decode_prompts_with_huggingface(
         logits_processor=qlogits_processor,
         **decoding_kwargs,
     )
+
+class Namespace:
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)

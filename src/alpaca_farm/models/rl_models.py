@@ -20,7 +20,7 @@ WARNING:
 """
 
 import abc
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 
 import torch
 import transformers
@@ -217,13 +217,20 @@ class Qfunction(nn.Module, abc.ABC):
         q_head = torch.nn.Linear(hidden_size, len(base_tokenizer)*self.args.num_q_heads, dtype=torch.float16)
         q_head.weight.data.zero_()
         q_head.bias.data.zero_()
-        self.q_head = q_head.to(list(base_model.parameters())[-1].device)
+        # TODO (seungwook): this hard-coding of device location may not be optimal
+        self.device = list(base_model.parameters())[-1].device
+        self.q_head = q_head.to(self.device)
+        
         self.model_parallel = True
         self.is_parallelizable = True
 
     @abc.abstractmethod
     def forward(self, queries: Tensor, query_attn_masks: Tensor, responses: Tensor) -> Dict[str, Tensor]:
         raise NotImplementedError
+
+    # load weights only for q_head
+    def load_state_dict(self, state_dict: Any, strict: bool=True):
+        return self.q_head.load_state_dict(state_dict, strict=strict)
 
 
 class AutoregressiveQfunction(Qfunction):
