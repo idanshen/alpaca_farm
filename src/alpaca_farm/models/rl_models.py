@@ -237,7 +237,7 @@ class Qfunction(nn.Module, abc.ABC):
 
 
 class AutoregressiveQfunction(Qfunction):
-    def forward(self, queries: Tensor, query_attn_masks: Tensor, responses: Optional[Tensor] = None, only_last: bool = False) -> Dict[str, Tensor]:
+    def forward(self, queries: Tensor, query_attn_masks: Optional[Tensor] = None, responses: Optional[Tensor] = None, only_last: bool = False) -> Dict[str, Tensor]:
         if responses is not None:
             sequences = torch.cat([queries, responses], dim=1)
         else:
