@@ -231,6 +231,9 @@ class Qfunction(nn.Module, abc.ABC):
     # load weights only for q_head
     def load_state_dict(self, state_dict: Any, strict: bool=True):
         return self.q_head.load_state_dict(state_dict, strict=strict)
+    
+    def load_q_head(self, path: str):
+        self.q_head = torch.load(path, map_location=self.device)
 
 
 class AutoregressiveQfunction(Qfunction):

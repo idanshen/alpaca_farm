@@ -380,7 +380,8 @@ def decode_prompts_with_huggingface(
         # TODO (seungwook): assumes that num_q_heads=1, but may need to change that
         args = Namespace(num_q_heads=1)
         q_model = make_qfunction_with_base_model(args, q_model, q_tokenizer)
-        q_model.load_state_dict(torch.load(os.path.join(q_checkpoint_dir, 'adapter_model/q_head.pt'), map_location=q_model.device))
+        # q_model.load_state_dict(torch.load(os.path.join(q_checkpoint_dir, 'adapter_model/q_head.pt'), map_location=q_model.device))
+        q_model.load_q_head(os.path.join(q_checkpoint_dir, 'adapter_model/q_head.pt'))
 
         qlogits_processor = QLogitsProcessor(q_model=q_model, beta=beta)
 
