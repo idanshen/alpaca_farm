@@ -24,6 +24,7 @@ from torch import nn
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullStateDictConfig
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.fully_sharded_data_parallel import StateDictType
+from torch.utils.data import DataLoader
 from transformers.modeling_utils import unwrap_model
 from accelerate import DistributedType
 import peft
@@ -66,6 +67,13 @@ class FQETrainer(rl_trainer.RLTrainer):
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
         )
+        eval_dataloader = DataLoader(
+            dataset=self.eval_dataset,
+            collate_fn=self.data_collator,
+            batch_size=args.per_device_eval_batch_size,
+            shuffle=True,
+            drop_last=True,)
+        self.eval_dataloader = self.accelerator.prepare(eval_dataloader)  # noqa
 
     def _shape_reward(
         self, rewards: Tensor, responses: Tensor,
@@ -225,34 +233,49 @@ class FQETrainer(rl_trainer.RLTrainer):
 
         # Compute the Q-values for the responses
         q_values = self.policy(queries, query_attn_masks, responses)["qvalues"]
-        q_values = torch.gather(q_values, dim=2, index=responses.unsqueeze(-1)).squeeze(-1)
+        q_values_logits = q_values / self.args.temperature
+        q_preds = torch.gather(q_values, dim=2, index=responses.unsqueeze(-1)).squeeze(-1)
 
-        if self.args.td_one:
-            # compute TD(1) targets
-            target_q_values = returns
-        else:
-            # compute TD(0) targets
-            with torch.no_grad():
+        with torch.no_grad():
+            # Sample rollouts using the reference policy.
+            rollouts_batch = {"queries": queries, "query_attn_masks": query_attn_masks, "responses": responses}
+            ref_policy_outputs = self.ref_policy(**rollouts_batch, temperature=self.args.temperature)
+            logits, = common.unpack_dict(ref_policy_outputs, keys=("logits",))
+            # Compute the KL-divergence between the reference policy and the Q-value induced policy
+            kl_div = (q_values_logits.softmax(dim=-1) * (
+                        q_values_logits.log_softmax(dim=-1) - logits.log_softmax(dim=-1))).sum(dim=-1).mean()
+
+            # Compute the Q-values for the next states
+            if self.args.td_one:
+                # compute TD(1) targets
+                target_q_values = returns
+            else:
+                # compute TD(0) targets
                 #  get Q-values for next states by shift action indices by 1, and append zero at the end
-                next_q_values = q_values[:, 1:].detach()
-                next_q_values = torch.cat([next_q_values, torch.zeros(next_q_values.shape[0], 1).to(self.accelerator.device)], dim=1)
-
+                next_q_values = q_values[:, 1:, :].detach()
+                next_q_values = torch.cat([next_q_values, torch.zeros(next_q_values.shape[0], 1, len(self.policy_tokenizer)).to(self.accelerator.device)], dim=1)
                 # 1-step TD target
-                target_q_values = rewards + self.args.gamma * next_q_values
+                target_q_values = rewards + self.args.gamma * torch.sum(next_q_values * logits.softmax(dim=-1), dim=2)
 
-        qf_losses = (q_values - target_q_values) ** 2.0
-        loss = qf_losses.mean()
+        cql_loss = torch.sum(logits.softmax(dim=-1) * q_values_logits.log_softmax(dim=-1), dim=2).mean()
 
-        return_mean, return_var = returns.mean(), returns.var(unbiased=False)
-        value_mean, value_var = q_values.mean(), q_values.var(unbiased=False)
+        qf_losses = (q_preds - target_q_values) ** 2.0
+        loss = qf_losses.mean() - self.kl_ctl.value * cql_loss
+
+        with torch.no_grad():
+            entropy = -(q_values_logits.softmax(dim=-1) * q_values_logits.log_softmax(dim=-1)).sum(dim=-1).mean()
+            return_mean, return_var = returns.mean(), returns.var(unbiased=False)
+            value_mean, value_var = q_preds.mean(), q_preds.var(unbiased=False)
 
         stats = dict(
             loss=dict(total=loss),
             returns=dict(mean=return_mean, var=return_var),
             val=dict(
-                error=((q_values - returns) ** 2).mean(),
+                error=((q_preds - returns) ** 2).mean(),
                 mean=value_mean,
                 var=value_var,
+                entropy=entropy,
+                kl_div=kl_div,
             ),
         )
         return loss, common.flatten_dict(stats, sep="/", postprocess_fn=lambda x: x.detach())
@@ -288,6 +311,47 @@ class FQETrainer(rl_trainer.RLTrainer):
                 rollouts_to_disk = pd.DataFrame(rollouts_to_disk).to_dict(orient="records")
                 utils.jdump(rollouts_to_disk, utils.join(self.args.output_dir, "rollouts", f"step_{step_idx}.json"))
         return stats
+
+    @torch.inference_mode()
+    def evaluate(self, step_idx: int, unwrapped_policy=None):
+        """Evaluate by query the Q-values of the model on the evaluation dataset."""
+
+        logger.warning(f"Start evaluation at step: {step_idx}", main_process_only=True)
+        logger.warning(f"Number of evaluation steps: {len(self.eval_dataloader)}", main_process_only=True)
+
+        aggregated_loss = []
+        for batch in tqdm.tqdm(self.eval_dataloader,  disable=not self.accelerator.is_main_process, desc="Evaluating"):
+            queries, query_attn_masks, values = common.prepare_inputs(
+                common.unpack_dict(
+                    batch,
+                    keys=("queries", "query_attn_masks", "values"),
+                ),
+                device=self.accelerator.device,
+            )
+
+            # Remove the last token from the queries
+            queries = queries[:, :-1]
+            query_attn_masks = query_attn_masks[:, :-1]
+            last_token = queries[:, -1]
+
+            # Start evaluation.
+            self.policy.eval()
+            self._make_fsdp_happy()  # we can keep this b/c it automatically checks if fsdp or not
+
+            # Compute the Q-values for the responses
+            q_values = self.policy(queries, query_attn_masks, only_last=True)["qvalues"]
+            q_values = torch.gather(q_values.squeeze(1), dim=1, index=last_token.unsqueeze(-1)).squeeze(-1)
+
+            # Compute the loss
+            assert q_values.shape == values.shape
+            batch_loss = (q_values - values) ** 2.0
+            aggregated_loss.append(batch_loss)
+
+        aggregated_loss = torch.cat(aggregated_loss, dim=0)
+        loss = aggregated_loss.mean()
+        stats = {'eval/mse': loss}
+        if self.accelerator.is_main_process:
+            self.accelerator.log(stats, step=step_idx)
 
     @torch.inference_mode()
     def save_model(self, output_dir: Optional[str] = None, give_rw_access=True, check_corrupted=True):

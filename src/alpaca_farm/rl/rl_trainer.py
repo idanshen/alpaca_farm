@@ -14,7 +14,7 @@
 
 import abc
 from pathlib import Path
-from typing import Callable, Dict, Optional, Sequence, Tuple, List
+from typing import Callable, Dict, Optional, Sequence, Tuple, List, Union
 
 import torch
 import torch.distributed as dist
@@ -42,7 +42,7 @@ class RLTrainer(object):
         self,
         args,
         train_dataset: data_preprocessor.QueryDataset,
-        eval_dataset: data_preprocessor.QueryDataset,
+        eval_dataset: Union[data_preprocessor.QueryDataset, data_preprocessor.OutputValuesDataset],
         data_collator: Callable,
         policy: nn.Module,
         ref_policy: nn.Module,

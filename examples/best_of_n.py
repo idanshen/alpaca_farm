@@ -19,6 +19,7 @@ from typing import Dict, Optional, Sequence, Union, Tuple
 import datasets
 import fire
 import pandas as pd
+import numpy as np
 
 from alpaca_farm import data_preprocessor, distributed_utils, utils
 from alpaca_farm.inference import decode, score
