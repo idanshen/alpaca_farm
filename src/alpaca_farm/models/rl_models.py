@@ -252,7 +252,7 @@ class AutoregressiveQfunction(Qfunction):
         outputs = self.base_model.model(**inputs, output_hidden_states=True)
 
         if only_last:
-            last_hidden_state = outputs.hidden_states[-1][:, - 1 :,:]
+            last_hidden_state = outputs.hidden_states[-1][:, - 1 :,:].squeeze()
         else:
             last_hidden_state = outputs.hidden_states[-1][:, queries.size(1) - 1 : -1,:]
         if last_hidden_state.dtype != torch.float16:
