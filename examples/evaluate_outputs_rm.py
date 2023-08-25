@@ -100,9 +100,8 @@ def evaluate_data(args, reward_model, eval_data_list_dict) -> List[Dict[str, Any
         pbar.update(len(batch_list_dict))
     
     print('Combining reward outputs into outputs...')
-    
     for j in range(len(eval_data_list_dict)):
-        eval_data_list_dict[j]['reward'] = rewards_list[i]
+        eval_data_list_dict[j]['reward'] = rewards_list[j]
 
     return eval_data_list_dict
 
