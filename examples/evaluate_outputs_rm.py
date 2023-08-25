@@ -104,6 +104,11 @@ def evaluate_data(args, reward_model, eval_data_list_dict) -> List[Dict[str, Any
         eval_data_list_dict[j]['reward'] = rewards_list[j]
         eval_data_list_dict[j]['reward_model'] = args.reward_model_name_or_path + args.reward_model_checkpoint_dir
 
+    print('Finished evaluating reward scores!')
+    
+    print('Mean reward score: ', sum(rewards_list) / len(rewards_list))
+    print('Std reward score: ', torch.tensor(rewards_list).std().item())
+
     return eval_data_list_dict
 
 
