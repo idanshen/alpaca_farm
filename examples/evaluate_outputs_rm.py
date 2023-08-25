@@ -102,6 +102,7 @@ def evaluate_data(args, reward_model, eval_data_list_dict) -> List[Dict[str, Any
     print('Combining reward outputs into outputs...')
     for j in range(len(eval_data_list_dict)):
         eval_data_list_dict[j]['reward'] = rewards_list[j]
+        eval_data_list_dict[j]['reward_model'] = args.reward_model_name_or_path + args.reward_model_checkpoint_dir
 
     return eval_data_list_dict
 
