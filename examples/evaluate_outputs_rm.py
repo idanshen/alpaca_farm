@@ -3,6 +3,7 @@ import argparse
 from typing import List, Dict, Any
 
 import transformers
+import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from dataclasses import dataclass, field
@@ -66,6 +67,7 @@ def make_reward_model(args, is_trainable=False):
     return base_reward_model
 
 
+@torch.inference_mode()
 def evaluate_data(args, reward_model, eval_data_list_dict) -> List[Dict[str, Any]]:
     """Given a generated dataset, evaluate it using the reward model
     
@@ -74,6 +76,8 @@ def evaluate_data(args, reward_model, eval_data_list_dict) -> List[Dict[str, Any
     eval_data_list_dict: List[Dict[str, Any]], the generated data to evaluate
     """
 
+    reward_model.eval()
+    
     pbar = tqdm(total=len(eval_data_list_dict), desc="eval")
     rewards_list = []
 
