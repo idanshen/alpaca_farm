@@ -22,7 +22,7 @@ class Arguments:
     reward_model_name_or_path: str = field(
         default="huggyllama/llama-7b", metadata={"help": "Name to a huggingface native pretrained model or path to a model on disk."})
     reward_model_checkpoint_dir: str = field(
-        default="./", metadata={"help": "Path to a checkpoint directory."})
+        default="", metadata={"help": "Path to a checkpoint directory."})
     output_filepath: str = field(
         default="./outputs.json", metadata={"help": "Path to a checkpoint directory."})
     path_to_result: str = field(
@@ -40,7 +40,6 @@ class Arguments:
             "help": "Path to a directory where transformers will cache the model. "
             "If None, transformers will use the default cache directory."
         },)
-    exp_name: str = field(default="eval_outputs_rm", metadata={"help": "The name of the experiment."})
 
 
 def make_reward_model(args, is_trainable=False):
