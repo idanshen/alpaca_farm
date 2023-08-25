@@ -234,6 +234,7 @@ class Qfunction(nn.Module, abc.ABC):
     
     def load_q_head(self, path: str):
         self.q_head = torch.load(path, map_location=self.device)
+        self.q_head.forward = common.cast_with_native_amp(self.q_head.forward, mixed_precision='fp16')
 
 
 class AutoregressiveQfunction(Qfunction):
