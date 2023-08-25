@@ -31,8 +31,10 @@ class Arguments:
         default=12, metadata={"help": "The path to the output json file."})
     four_bits: bool = field(default=True, metadata={"help": "If True, uses 4-bit quantization."})
     flash_attn: bool = field(default=False, metadata={"help": "If True, uses Flash Attention."})
-    bfloat16: bool = field(
+    bf16: bool = field(
         default=False, metadata={"help": "If True, uses bfloat16. If lora and four_bits are True, bfloat16 is used for the lora weights."})
+    fp16: bool = field(
+        default=False, metadata={"help": "If True, uses float16. "})
     use_lora: bool = field(default=True, metadata={"help": "If True, uses LoRA."})
     transformer_cache_dir: str = field(
         default=None,
@@ -118,6 +120,15 @@ if __name__ == "__main__":
     print('Loaded data, now evaluating reward scores...')
     reward_tokenizer: transformers.PreTrainedTokenizer = _make_left_padded_tokenizer(model_name_or_path=args.reward_model_name_or_path)
     reward_model = make_reward_model(args=args)
+
+    # mixed precision
+    if args.fp16:
+        mixed_precision = 'fp16'
+    elif args.bf16:
+        mixed_precision = 'bf16'
+    else:
+        mixed_precision = None
+    reward_model.forward = common.cast_with_native_amp(reward_model.forward, mixed_precision=mixed_precision)
 
     eval_data = evaluate_data(args, reward_model, eval_data_list_dict)
 
