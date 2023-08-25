@@ -81,7 +81,7 @@ def evaluate_data(args, reward_model, eval_data_list_dict) -> List[Dict[str, Any
     rewards_list = []
 
     print('Evaluating reward scores...')
-    for i, idx in enumerate(range(len(eval_data_list_dict)), step=args.per_device_batch_size):
+    for idx in range(0, len(eval_data_list_dict), args.per_device_batch_size):
         if len(eval_data_list_dict) < (idx + args.per_device_batch_size):
             batch_list_dict = eval_data_list_dict[idx:idx+args.per_device_batch_size]
         else:
@@ -99,8 +99,8 @@ def evaluate_data(args, reward_model, eval_data_list_dict) -> List[Dict[str, Any
     
     print('Combining reward outputs into outputs...')
     
-    for i in range(len(eval_data_list_dict)):
-        eval_data_list_dict[i]['reward'] = rewards_list[i]
+    for j in range(len(eval_data_list_dict)):
+        eval_data_list_dict[j]['reward'] = rewards_list[i]
 
     return eval_data_list_dict
 
