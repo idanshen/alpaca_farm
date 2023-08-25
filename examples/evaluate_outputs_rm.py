@@ -93,9 +93,9 @@ def evaluate_data(args, reward_model, eval_data_list_dict) -> List[Dict[str, Any
         encoded_full_responses = reward_tokenizer(batch_full_outputs, return_tensors="pt", padding=True, truncation=True)
         encoded_full_responses, = common.prepare_inputs((encoded_full_responses, ), device=0)
         reward_outputs = reward_model(**encoded_full_responses)
-        rewards = reward_outputs['rewards'].squeeze().cpu().detach().numpy()
-        
-        rewards_list.extend(list(rewards))
+        rewards = reward_outputs['rewards'].squeeze().cpu().detach().numpy().tolist()
+
+        rewards_list.extend(rewards if isinstance(rewards, list) else [rewards])
         # join data
         pbar.update(len(batch_list_dict))
     
