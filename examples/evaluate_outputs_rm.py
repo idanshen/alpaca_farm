@@ -138,5 +138,9 @@ if __name__ == "__main__":
     eval_data = evaluate_data(args, reward_model, eval_data_list_dict)
 
     # combine output file and reward outputs
+
+    OUTPUT_DIR = './outputs/'
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    args.path_to_result = os.path.join(OUTPUT_DIR, args.path_to_result)
     print(f'Saving results to file {args.path_to_result}...')
     jdump(eval_data, args.path_to_result)

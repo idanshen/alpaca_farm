@@ -22,8 +22,8 @@ class Arguments:
         default='', metadata={"help": "Path to a HF dataset."})
     dataset_name: str = field(
         default='', metadata={"help": "Name of the HF dataset."})
-    path_to_data: str = field(
-        default="output.json", metadata={"help": "Path to a output file to be saved."})
+    path_to_result: str = field(
+        default="output.json", metadata={"help": "Path to a output/result file to be saved."})
     num_return_sequences: int = field(
         default=1, metadata={"help": "The number of sequences to return from the decoder."})
     temp: float = field(
@@ -85,5 +85,5 @@ if __name__ == "__main__":
         
         OUTPUT_DIR = './outputs/'
         os.makedirs(OUTPUT_DIR, exist_ok=True)
-        args.path_to_data = os.path.join(OUTPUT_DIR, args.path_to_data)
-        jdump(list_dict_data, args.path_to_data)
+        args.path_to_result = os.path.join(OUTPUT_DIR, args.path_to_result)
+        jdump(list_dict_data, args.path_to_result)

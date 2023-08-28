@@ -7,7 +7,7 @@ CUDA_VISIBLE_DEVICES=0 python examples/generate_qmodel.py \
   --load_in_4_bits True \
   --temp 0.7 \
   --per_device_batch_size 4 \
-  --path_to_data ./outputs_q.json \
+  --path_to_result outputs_q.json \
   --beta 1.0 \
   --dataset_path argilla/news-summary \
   --dataset_name comparisons
