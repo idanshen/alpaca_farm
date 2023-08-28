@@ -230,7 +230,14 @@ class FQETrainer(rl_trainer.RLTrainer):
             ),
             device=self.accelerator.device,
         )
-
+        batch_size = responses.size(0)
+        if batch_size == 1:
+            # remove all padding tokens
+            returns = returns[responses != self.policy_tokenizer.pad_token_id].view(1, -1)
+            rewards = rewards[responses != self.policy_tokenizer.pad_token_id].view(1, -1)
+            responses = responses[responses != self.policy_tokenizer.pad_token_id].view(1, -1)
+            query_attn_masks = query_attn_masks[queries != self.policy_tokenizer.pad_token_id].view(1, -1)
+            queries = queries[queries != self.policy_tokenizer.pad_token_id].view(1, -1)
         # Compute the Q-values for the responses
         q_values = self.policy(queries, query_attn_masks, responses)["qvalues"]
         q_values_logits = q_values / self.args.temperature
@@ -328,6 +335,12 @@ class FQETrainer(rl_trainer.RLTrainer):
                 ),
                 device=self.accelerator.device,
             )
+
+            batch_size = queries.shape[0]
+            if batch_size == 1:
+                # remove all padding tokens
+                query_attn_masks = query_attn_masks[queries != self.policy_tokenizer.pad_token_id].view(1, -1)
+                queries = queries[queries != self.policy_tokenizer.pad_token_id].view(1, -1)
 
             # Remove the last token from the queries
             queries = queries[:, :-1]

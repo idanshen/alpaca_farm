@@ -94,12 +94,12 @@ class AutoregressivePolicy(Policy):
             use_cache=False,
         )
         outputs = self.base_model(**inputs, output_hidden_states=True)
-        original_logits = outputs.logits[:, -self.args.response_len - 1 : -1]
+        original_logits = outputs.logits[:, -responses.shape[1] - 1 : -1]
         logits = original_logits / temperature
-        labels = input_ids[:, -self.args.response_len :]
+        labels = input_ids[:, -responses.shape[1] :]
         logprobs = torch_ops.compute_logprobs(logits, labels, ignore_index=self.base_tokenizer.pad_token_id)
         entropies = -(logits.softmax(dim=-1) * logits.log_softmax(dim=-1)).sum(dim=-1)
-        last_hidden_state = outputs.hidden_states[-1][:, -self.args.response_len - 1 : -1]
+        last_hidden_state = outputs.hidden_states[-1][:, -responses.shape[1] - 1 : -1]
         return dict(
             original_logits=original_logits,
             logits=logits,
@@ -214,10 +214,20 @@ class Qfunction(nn.Module, abc.ABC):
         self.base_model = base_model
         self.base_tokenizer = base_tokenizer
         hidden_size = common.get_transformer_hidden_size(base_model)
-        q_head = torch.nn.Linear(hidden_size, len(base_tokenizer)*self.args.num_q_heads, dtype=torch.float16)
-        q_head.weight.data.zero_()
-        q_head.bias.data.zero_()
-        self.q_head = q_head.to(list(base_model.parameters())[-1].device)
+        self.feature_size = hidden_size
+        if args.q_head_type == "linear":
+            q_head = torch.nn.Linear(self.feature_size, len(base_tokenizer)*self.args.num_q_heads, dtype=torch.float16)
+            q_head.weight.data.zero_()
+            q_head.bias.data.zero_()
+            self.q_head = q_head.to(list(base_model.parameters())[-1].device)
+        elif args.q_head_type == "projection":
+            assert args.num_q_heads == 1
+            self.token_features = self.base_model.get_input_embeddings().weight.type(torch.float16).to(list(base_model.parameters())[-1].device)
+            self.feature_size = self.token_features.shape[1]
+            w_h = torch.nn.Linear(in_features=hidden_size, out_features=self.feature_size, dtype=torch.float16)
+            w_h.weight.data.zero_()
+            w_h.bias.data.zero_()
+            self.q_head = w_h.to(list(base_model.parameters())[-1].device)
         self.model_parallel = True
         self.is_parallelizable = True
 
@@ -232,6 +242,7 @@ class AutoregressiveQfunction(Qfunction):
             sequences = torch.cat([queries, responses], dim=1)
         else:
             sequences = queries
+
         sequence_attn_masks = sequences.ne(self.base_tokenizer.pad_token_id)
 
         inputs = self.base_model.prepare_inputs_for_generation(
@@ -241,15 +252,25 @@ class AutoregressiveQfunction(Qfunction):
         )
         outputs = self.base_model.model(**inputs, output_hidden_states=True)
 
+        # get the hidden state of the last layer
         if only_last:
             last_hidden_state = outputs.hidden_states[-1][:, - 1 :,:]
         else:
             last_hidden_state = outputs.hidden_states[-1][:, queries.size(1) - 1 : -1,:]
-        if last_hidden_state.dtype != torch.float16:
-            last_hidden_state = last_hidden_state.type(torch.float16)
-        qvalues = self.q_head(last_hidden_state).squeeze(-1)
-        if self.args.num_q_heads > 1:
-            qvalues = qvalues.view(-1, self.args.num_q_heads, len(self.base_tokenizer))
+
+        # make sure the dtype of last_hidden_state is the same as that of q_head
+        if last_hidden_state.dtype != self.q_head.weight.dtype:
+            last_hidden_state = last_hidden_state.type(self.q_head.weight.dtype)
+
+        # project the hidden state to the q values
+        if self.args.q_head_type == "linear":
+            qvalues = self.q_head(last_hidden_state).squeeze(-1)
+            if self.args.num_q_heads > 1:
+                qvalues = qvalues.view(-1, self.args.num_q_heads, len(self.base_tokenizer))
+        elif self.args.q_head_type == "projection":
+            h_features = self.q_head(last_hidden_state)  # from B x L x H to B x L x H'
+            t_features = self.token_features  # T x H'
+            qvalues = h_features @ t_features.T  # B x L x T
         return dict(qvalues=qvalues)
 
 
