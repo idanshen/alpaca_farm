@@ -53,7 +53,7 @@ if __name__ == "__main__":
     else:
         mixed_precision = None
         
-    if os.path.isfile(args.path_to_data):
+    if os.path.isfile(args.path_to_result):
         print('Output file already exists, skipping generating data')
     else:
         print('Start generating data')
@@ -81,8 +81,8 @@ if __name__ == "__main__":
                                         load_in_4_bits=args.load_in_4_bits,
                                         mixed_precision=mixed_precision,
                                         beta=args.beta)
-        print('Saving generated data to {}'.format(args.path_to_data))
-        
+            
+        print('Saving generated data to {}'.format(args.path_to_result))
         OUTPUT_DIR = './outputs/'
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         args.path_to_result = os.path.join(OUTPUT_DIR, args.path_to_result)
