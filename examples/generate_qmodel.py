@@ -23,7 +23,7 @@ class Arguments:
     dataset_name: str = field(
         default='', metadata={"help": "Name of the HF dataset."})
     path_to_data: str = field(
-        default="./output.json", metadata={"help": "Path to a checkpoint directory."})
+        default="./output.json", metadata={"help": "Path to a output file to be saved."})
     num_return_sequences: int = field(
         default=1, metadata={"help": "The number of sequences to return from the decoder."})
     temp: float = field(
