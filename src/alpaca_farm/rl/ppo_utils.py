@@ -88,6 +88,7 @@ class TrainingArguments(transformers.TrainingArguments):
     lam: float = field(default=1.0)
     whiten_rewards: bool = field(default=False)
     td_one: bool = field(default=True)
+    q_head_type: str = field(default="linear")  # linear or projection
     num_q_heads: int = field(default=1)
     adam_epsilon: float = field(
         default=1e-5,
