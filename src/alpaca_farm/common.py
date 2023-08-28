@@ -20,6 +20,7 @@ import types
 import warnings
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Union
+from optimum.bettertransformer import BetterTransformer
 
 import accelerate
 import torch
@@ -158,8 +159,6 @@ def get_accelerate_model(
     **kwargs,
 ):
 
-    assert not flash_attn, "currently flash attention is not supported (need to verify with 4bit training)"
-
     print(f'loading base model {model_name_or_path}...')
     compute_dtype = (torch.bfloat16 if bfloat16 else torch.float16)
 
@@ -177,6 +176,9 @@ def get_accelerate_model(
         trust_remote_code=False,  # Set True to enable unpickling of arbitrary code in AutoModelForCausalLM#from_pretrained.
         cache_dir=transformer_cache_dir,
     )
+    if flash_attn:
+        print("Using Flash Attention. Notice that this feature requires per device batch size 1.")
+        model = BetterTransformer.transform(model)
 
     setattr(model, 'model_parallel', True)
     setattr(model, 'is_parallelizable', True)
