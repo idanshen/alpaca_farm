@@ -4,7 +4,6 @@ import argparse
 import transformers
 from dataclasses import dataclass, field
 
-from best_of_n import run_decode_augmented
 from alpaca_farm.utils import jload, jdump
 from alpaca_farm.auto_annotations import alpaca_leaderboard_general
 
