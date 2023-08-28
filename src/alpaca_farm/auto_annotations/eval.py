@@ -122,18 +122,18 @@ def alpaca_leaderboard_general(
         
         logging.info(f"Loaded outputs from {path_or_all_outputs[0] and path_or_all_outputs[1]}.")
     except:
-        all_outputs1 = path_or_all_outputs[0]
-        all_outputs2 = path_or_all_outputs[1]
+        all_outputs_baseline = path_or_all_outputs[0]
+        all_outputs_new = path_or_all_outputs[1]
 
     if is_add_reference_methods: # TODO (seungwook): check this
         all_metrics = PRECOMPUTED_LEADERBOARD[annotators_config]
     else:
         all_metrics = dict()
 
-    outputs_1 = eval_utils.load_or_convert_to_dataframe(all_outputs1)
-    outputs_2 = eval_utils.load_or_convert_to_dataframe(all_outputs2)
+    all_outputs_baseline = eval_utils.load_or_convert_to_dataframe(all_outputs_baseline)
+    all_outputs_new = eval_utils.load_or_convert_to_dataframe(all_outputs_new)
     annotator = PairwiseAutoAnnotator(annotators_config=annotators_config, **kwargs)
-    annotated = annotator.annotate_head2head(outputs_1=outputs_1, outputs_2=outputs_2)
+    annotated = annotator.annotate_head2head(outputs_1=all_outputs_baseline, outputs_2=all_outputs_new)
     all_metrics[name] = metrics.pairwise_to_winrate(preferences=[a["preference"] for a in annotated])
 
     df_results = pd.DataFrame(all_metrics).T.sort_values(by="win_rate", ascending=False)
