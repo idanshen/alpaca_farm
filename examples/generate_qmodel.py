@@ -34,6 +34,10 @@ class Arguments:
         default=True, metadata={"help": "Whether to load the model in 4 bits."})
     beta: float = field(
         default=1.0, metadata={"help": "The beta value to use for weighting the q model."})
+    bf16: bool = field(
+        default=False, metadata={"help": "If True, uses bfloat16. If lora and four_bits are True, bfloat16 is used for the lora weights."})
+    fp16: bool = field(
+        default=False, metadata={"help": "If True, uses float16. "})
 
 
 if __name__ == "__main__":
@@ -41,6 +45,14 @@ if __name__ == "__main__":
     parser = transformers.HfArgumentParser(Arguments)
     args, = parser.parse_args_into_dataclasses()
 
+    # mixed precision
+    if args.fp16:
+        mixed_precision = 'fp16'
+    elif args.bf16:
+        mixed_precision = 'bf16'
+    else:
+        mixed_precision = None
+        
     if os.path.isfile(args.path_to_data):
         print('Output file already exists, skipping generating data')
     else:
@@ -55,7 +67,8 @@ if __name__ == "__main__":
                                         num_return_sequences=args.num_return_sequences, 
                                         temperature=args.temp, 
                                         per_device_batch_size=args.per_device_batch_size, 
-                                        load_in_4_bits=args.load_in_4_bits)
+                                        load_in_4_bits=args.load_in_4_bits,
+                                        mixed_precision=mixed_precision)
         else: 
             list_dict_data = run_decode_augmented(decoder_name_or_path=args.decoder_name_or_path,
                                         checkpoint_dir=args.decoder_checkpoint_dir,
@@ -66,7 +79,8 @@ if __name__ == "__main__":
                                         temperature=args.temp, 
                                         per_device_batch_size=args.per_device_batch_size, 
                                         load_in_4_bits=args.load_in_4_bits,
-                                        beta=args.beta,)
+                                        mixed_precision=mixed_precision,
+                                        beta=args.beta)
         print('Saving generated data to {}'.format(args.path_to_data))
         
         OUTPUT_DIR = './outputs/'
