@@ -46,7 +46,7 @@ class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
         # TODO (seungwook): may need to pass in mask as well?
         q_outputs = self.q_model(input_ids, only_last=True)
-        return scores + self.beta * q_outputs['logits'].squeeze()
+        return scores + self.beta * q_outputs['qvalues'].squeeze()
     
     def _apply(self, fn):
         super()._apply(fn)
