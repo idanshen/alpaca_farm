@@ -14,7 +14,7 @@ parser.add_argument('--output_filepath1', type=str, default='./outputs1.json'
                     , help='The path to the output json file to load')
 parser.add_argument('--output_filepath2', type=str, default='./outputs2.json'
                     , help='The path to the output json file to load')
-parser.add_argument('--path_to_result', type=str, default='./results.json'
+parser.add_argument('--path_to_result', type=str, default='results.json'
                     , help='The path to the output json file')
 parser.add_argument('--exp_name', type=str, default='eval_outputs_llm'
                     , help='The name of the experiment')

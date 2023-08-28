@@ -26,7 +26,7 @@ class Arguments:
     output_filepath: str = field(
         default="./outputs.json", metadata={"help": "Path to a checkpoint directory."})
     path_to_result: str = field(
-        default="./results.json", metadata={"help": "The path to the output json file."})
+        default="results.json", metadata={"help": "The path to the output json file."})
     per_device_batch_size: int = field(
         default=12, metadata={"help": "The path to the output json file."})
     four_bits: bool = field(default=True, metadata={"help": "If True, uses 4-bit quantization."})
