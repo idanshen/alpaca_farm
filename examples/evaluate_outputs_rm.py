@@ -26,7 +26,7 @@ class Arguments:
     output_filepath: str = field(
         default="./outputs.json", metadata={"help": "Path to a checkpoint directory."})
     path_to_result: str = field(
-        default="./results.json", metadata={"help": "The path to the output json file."})
+        default="results.json", metadata={"help": "The path to the output json file."})
     per_device_batch_size: int = field(
         default=12, metadata={"help": "The path to the output json file."})
     four_bits: bool = field(default=True, metadata={"help": "If True, uses 4-bit quantization."})
@@ -104,6 +104,11 @@ def evaluate_data(args, reward_model, eval_data_list_dict) -> List[Dict[str, Any
         eval_data_list_dict[j]['reward'] = rewards_list[j]
         eval_data_list_dict[j]['reward_model'] = args.reward_model_name_or_path + args.reward_model_checkpoint_dir
 
+    print('Finished evaluating reward scores!')
+    
+    print('Mean reward score: ', sum(rewards_list) / len(rewards_list))
+    print('Std reward score: ', torch.tensor(rewards_list).std().item())
+
     return eval_data_list_dict
 
 
@@ -133,5 +138,9 @@ if __name__ == "__main__":
     eval_data = evaluate_data(args, reward_model, eval_data_list_dict)
 
     # combine output file and reward outputs
+
+    OUTPUT_DIR = './outputs/'
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    args.path_to_result = os.path.join(OUTPUT_DIR, args.path_to_result)
     print(f'Saving results to file {args.path_to_result}...')
     jdump(eval_data, args.path_to_result)
