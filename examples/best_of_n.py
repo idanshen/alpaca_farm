@@ -70,18 +70,21 @@ def run_decode(
         If num_return_sequences > 1, each 'completion' is a list of strings. Otherwise, it is a string.
     """
     dataset = datasets.load_dataset(dataset_path, dataset_name)
-    df = pd.DataFrame(dataset[split])
-    if dataset_path == "argilla/news-summary":
-        input_preprocess_fn = lambda x: "-".join(x["text"].replace("\n", " ").split("(Reuters) -")[1:]).strip()
-        filter_fn = lambda x: x["input"] != '' and x["id"] is not None and len(x["input"].split()) < 750
-        id_map_fn = lambda x: {"id": x["id"]}
-        df["input"] = df.apply(input_preprocess_fn, axis=1)
-        df["instruction"] = ["Generate a one-sentence summary of this post."]*len(df)
-        df = df[df.apply(filter_fn, axis=1)]
-    prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_data_frame(
-        df=df,
-        prompt_dict=utils.jload(prompt_dict_path),
-    )
+
+    if dataset_path == 'argilla/news-summary' :
+        split_map = {"train": "test", "validation": "train", "eval": "train"} # swap train and validation b/c more train dataset is quite small and validation is bigger'
+        prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_dataset(
+            dataset_path=dataset_path,
+            dataset=dataset[split_map[split]],
+            prompt_dict=utils.jload(prompt_dict_path),
+        )
+    # TODO (seungwook): fix this for the new tasks
+    else:
+        prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_data_frame(
+            df=pd.DataFrame(dataset[split]),
+            prompt_dict=utils.jload(prompt_dict_path),
+        )
+    
     prompts, list_dict_data = prompts[:max_instances], list_dict_data[:max_instances]
 
     outputs = decode.decode_prompts_with_huggingface(
@@ -97,6 +100,105 @@ def run_decode(
         checkpoint_dir=checkpoint_dir,
         model_and_tokenizer=model_and_tokenizer,
         seed=seed,
+    )
+
+    sample_mode = sample_mode_formatter.format(temperature=temperature, max_new_tokens=max_new_tokens, seed=seed)
+    return_list_dict_data = [
+        {
+            "instruction": dict_data["instruction"],
+            "input": dict_data["input"],
+            "output": output,
+            "prompt": prompt,
+            "decoder_name_or_path": decoder_name_or_path,
+            "sample_mode": sample_mode,
+        }
+        for dict_data, prompt, output in utils.zip_(list_dict_data, prompts, outputs)
+    ]
+    if output_path is not None and distributed_utils.is_main_process():
+        utils.jdump(return_list_dict_data, output_path)
+
+    return return_list_dict_data
+
+def run_decode_augmented(
+    decoder_name_or_path: AnyPath,
+    dataset_path="tatsu-lab/alpaca_farm",
+    dataset_name: Optional[str] = "alpaca_farm_evaluation",
+    split="eval",
+    prompt_dict_path=pathlib.Path(__file__).parent / "prompts" / "v0_inputs_noinputs.json",
+    output_path: AnyPathOrNone = None,
+    max_instances=sys.maxsize,
+    per_device_batch_size=4,
+    temperature=1.0,
+    max_new_tokens=300,
+    num_return_sequences=4,
+    mixed_precision=None,
+    tf32=False,
+    load_in_4_bits=False,
+    checkpoint_dir: Optional[str] = None,
+    q_checkpoint_dir: Optional[str] = None,
+    model_and_tokenizer: Optional[Tuple] = None,
+    beta: float = 1.0,
+    seed: Optional[int] = None,
+):
+    """Decode samples from the policy language model augmented with a q value estimator.
+
+    Args:
+        decoder_name_or_path: Name or path of the policy language model.
+        dataset_path: Path to the dataset for datasets.load_dataset.
+        dataset_name: Name of the dataset for datasets.load_dataset.
+        prompt_dict_path: Path to the prompt dictionary for formatting the instruction and input into a string.
+        output_path: Optional path to save the decoding results.
+        split: Split of the dataset to decode.
+        max_instances: Maximum number of instances to decode.
+        per_device_batch_size: Batch size for reranking for each device.
+        temperature: Temperature for decoding.
+        checkpoint_dir: Optional path to the checkpoint directory for the policy model
+        q_checkpoint_dir: Optional path to the checkpoint directory for the q value estimator
+        beta: Beta value for the q value estimator
+        max_new_tokens: Maximum number of new tokens to generate.
+        seed: Random seed for decoding.
+        num_return_sequences: Number of sequences to return per each prompt.
+        mixed_precision: Mixed precision mode for the reward model.
+        tf32: Whether to use tensorfloat32 for matrix multiplication.
+
+    Returns:
+        List of dict data with keys.
+        If num_return_sequences > 1, each 'completion' is a list of strings. Otherwise, it is a string.
+    """
+    dataset = datasets.load_dataset(dataset_path, dataset_name)
+
+    # TODO (seungwook): may need to fix list_dict_data as the new tasks don't have this defined
+    if dataset_path == 'argilla/news-summary' :
+        split_map = {"train": "test", "validation": "train", "eval": "train"} # swap train and validation b/c more train dataset is quite small and validation is bigger'
+        prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_dataset(
+            dataset_path=dataset_path,
+            dataset=dataset[split_map[split]],
+            prompt_dict=utils.jload(prompt_dict_path),
+        )
+    # TODO (seungwook): fix this for the new tasks
+    else:
+        prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_data_frame(
+            df=pd.DataFrame(dataset[split]),
+            prompt_dict=utils.jload(prompt_dict_path),
+        )
+        
+    prompts, list_dict_data = prompts[:max_instances], list_dict_data[:max_instances]
+
+    outputs = decode.decode_prompts_with_huggingface(
+        model_name_or_path=decoder_name_or_path,
+        prompts=prompts,
+        decoding_args=decode.HFDecodingArguments(
+            temperature=temperature, max_new_tokens=max_new_tokens, num_return_sequences=num_return_sequences
+        ),
+        per_device_batch_size=per_device_batch_size,
+        mixed_precision=mixed_precision,
+        tf32=tf32,
+        load_in_4_bits=load_in_4_bits,
+        checkpoint_dir=checkpoint_dir,
+        q_checkpoint_dir=q_checkpoint_dir,
+        model_and_tokenizer=model_and_tokenizer,
+        seed=seed,
+        beta=beta,
     )
 
     sample_mode = sample_mode_formatter.format(temperature=temperature, max_new_tokens=max_new_tokens, seed=seed)

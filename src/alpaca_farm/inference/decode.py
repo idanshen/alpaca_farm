@@ -17,16 +17,41 @@ import dataclasses
 import math
 import sys
 from typing import Callable, List, Optional, Sequence, Tuple, Union
+import os
 
 import einops
 import torch
 import tqdm
 import transformers
+from transformers import LogitsProcessorList
 from peft import PeftModel
 
 from .. import common, constants, distributed_utils, logging, torch_ops, utils
+from ..models.rl_models import make_qfunction_with_base_model, AutoregressiveQfunction
 
 logger = logging.get_logger(__name__)
+
+class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
+    """
+    A hack class to process logits to integrate learned Q values
+
+    (currently assumes that the tokenizer for the policy and q model are the same)
+    """
+    def __init__(self, q_model: AutoregressiveQfunction, beta: float):
+        # call super init
+        super().__init__()
+        self.q_model = q_model # assumes that q model is already moved to device (whether on 1 device or multiple)
+        self.beta = beta
+    
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+        # TODO (seungwook): may need to pass in mask as well?
+        q_outputs = self.q_model(input_ids, only_last=True)
+        return scores + self.beta * q_outputs['logits'].squeeze()
+    
+    def _apply(self, fn):
+        super()._apply(fn)
+        self.q_model = self.q_model._apply(fn)
+        return self
 
 
 @dataclasses.dataclass
@@ -89,6 +114,8 @@ def load_model_and_tokenizer_for_inference(
         common.let_model_save_mem_when_zero_grad(model)
     else:
         model = model_cls.from_pretrained(model_name_or_path, **model_kwargs).eval()
+
+    # TODO (seungwook): this may need to be fixed depending on the model b/c currently assumes llama for pad_token_id=0
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_name_or_path, **tokenizer_kwargs)
     tokenizer.padding = 'longest'
     tokenizer.pad_token_id = 0
@@ -127,12 +154,14 @@ def decode_prompts_with_huggingface_given_model(
     seed: Optional[int] = None,
     communication_num_chunks=1,
     tokenization_batch_size=1000,
+    logits_processor: Optional[transformers.LogitsProcessor] = None,
     **decoding_kwargs,
 ) -> Union[List[List[str]], List[str]]:
     """Decode from a given model a sequence of string prompts."""
     if seed is not None:
         utils.manual_seed(seed)
 
+    model.eval() # TODO (seungwook): is there a reason why this is missing all over decode?
     torch.backends.cuda.matmul.allow_tf32 = torch.backends.cudnn.allow_tf32 = tf32  # noqa
 
     local_rank, world_size = distributed_utils.setup()
@@ -199,6 +228,7 @@ def decode_prompts_with_huggingface_given_model(
                 internal_batch_sequences = model.generate(
                     inputs=inputs,
                     attention_mask=attention_mask,
+                    logits_processor=LogitsProcessorList([logits_processor]) if logits_processor else None,
                     **batch_generate_kwargs,
                 )
                 if not model.config.is_encoder_decoder:
@@ -227,7 +257,7 @@ def decode_prompts_with_huggingface_given_model(
                     f"num_return_sequences ({decoding_args.num_return_sequences}). Not batching over return sequences."
                 )
 
-            sequences = model.generate(inputs=inputs, attention_mask=attention_mask, **generate_kwargs)
+            sequences = model.generate(inputs=inputs, attention_mask=attention_mask, logits_processor=LogitsProcessorList([logits_processor]) if logits_processor else None, **generate_kwargs)
             if not model.config.is_encoder_decoder:
                 sequences = sequences[:, inputs.shape[1] :]
             sequences = torch_ops.right_pad(sequences, (sequences.size(0), pad_to_length), value=tokenizer.pad_token_id)
@@ -291,10 +321,12 @@ def decode_prompts_with_huggingface(
     tf32=True,
     load_in_4_bits: bool = False,
     checkpoint_dir: Optional[str] = None,
+    q_checkpoint_dir: Optional[str] = None,
     model_and_tokenizer: Optional[Tuple] = None,
     force_multisample_format: bool = False,
     seed: Optional[int] = None,
     communication_num_chunks: int = 1,
+    beta: float = 1.0,
     **decoding_kwargs,
 ) -> Union[List[List[str]], List[str]]:
     """Decode from a huggingface model given a sequence of string prompts.
@@ -306,6 +338,9 @@ def decode_prompts_with_huggingface(
             the tokenizer.
         per_device_batch_size: The batch size per device for decoding.
         cache_dir: The directory to cache the huggingface model.
+        checkpoint_dir: The directory to load the policy checkpoint adapter from.
+        q_checkpoint_dir: The directory to load the q checkpoint adapter from.
+        beta: Beta value for q value estimaator weighting.
         mixed_precision: Whether to use mixed precision. If None, no casting will be performed.
         max_instances: The maximum number of prompts to decode.
         pad_to_length: The token length to pad the prompts. This is necessary for and only used in distributed decoding.
@@ -331,6 +366,25 @@ def decode_prompts_with_huggingface(
             load_in_4_bits=load_in_4_bits,
             checkpoint_dir=checkpoint_dir,
         )
+    
+    # TODO (seungwook): assumes that the policy and q model base are the same (may need to change)
+    qlogits_processor = None
+    if q_checkpoint_dir is not None:
+        q_model, q_tokenizer = load_model_and_tokenizer_for_inference(
+            model_name_or_path=model_name_or_path,
+            cache_dir=cache_dir,
+            model_kwargs=dict(torch_dtype=utils.convert_str_dtype_to_torch_dtype(mixed_precision)),
+            load_in_4_bits=load_in_4_bits,
+            checkpoint_dir=q_checkpoint_dir,
+        )
+        # TODO (seungwook): assumes that num_q_heads=1, but may need to change that
+        args = Namespace(num_q_heads=1)
+        q_model = make_qfunction_with_base_model(args, q_model, q_tokenizer)
+        # q_model.load_state_dict(torch.load(os.path.join(q_checkpoint_dir, 'adapter_model/q_head.pt'), map_location=q_model.device))
+        q_model.load_q_head(os.path.join(q_checkpoint_dir, 'adapter_model/q_head.pt'))
+
+        qlogits_processor = QLogitsProcessor(q_model=q_model, beta=beta)
+
     return decode_prompts_with_huggingface_given_model(
         model=model,
         tokenizer=tokenizer,
@@ -344,5 +398,10 @@ def decode_prompts_with_huggingface(
         force_multisample_format=force_multisample_format,
         seed=seed,
         communication_num_chunks=communication_num_chunks,
+        logits_processor=qlogits_processor,
         **decoding_kwargs,
     )
+
+class Namespace:
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)

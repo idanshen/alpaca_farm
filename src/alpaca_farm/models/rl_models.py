@@ -20,7 +20,7 @@ WARNING:
 """
 
 import abc
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 
 import torch
 import transformers
@@ -219,7 +219,9 @@ class Qfunction(nn.Module, abc.ABC):
             q_head = torch.nn.Linear(self.feature_size, len(base_tokenizer)*self.args.num_q_heads, dtype=torch.float16)
             q_head.weight.data.zero_()
             q_head.bias.data.zero_()
-            self.q_head = q_head.to(list(base_model.parameters())[-1].device)
+            # TODO (seungwook): this hard-coding of device location may not be optimal
+            self.device = list(base_model.parameters())[-1].device
+            self.q_head = q_head.to(self.device)
         elif args.q_head_type == "projection":
             assert args.num_q_heads == 1
             self.token_features = self.base_model.get_input_embeddings().weight.type(torch.float16).to(list(base_model.parameters())[-1].device)
@@ -227,7 +229,9 @@ class Qfunction(nn.Module, abc.ABC):
             w_h = torch.nn.Linear(in_features=hidden_size, out_features=self.feature_size, dtype=torch.float16)
             w_h.weight.data.zero_()
             w_h.bias.data.zero_()
-            self.q_head = w_h.to(list(base_model.parameters())[-1].device)
+            # TODO (seungwook): this hard-coding of device location may not be optimal
+            self.device = list(base_model.parameters())[-1].device
+            self.q_head = w_h.to(self.device)
         self.model_parallel = True
         self.is_parallelizable = True
 
@@ -235,9 +239,17 @@ class Qfunction(nn.Module, abc.ABC):
     def forward(self, queries: Tensor, query_attn_masks: Tensor, responses: Tensor) -> Dict[str, Tensor]:
         raise NotImplementedError
 
+    # load weights only for q_head
+    def load_state_dict(self, state_dict: Any, strict: bool=True):
+        return self.q_head.load_state_dict(state_dict, strict=strict)
+    
+    def load_q_head(self, path: str):
+        self.q_head = torch.load(path, map_location=self.device)
+        self.q_head.forward = common.cast_with_native_amp(self.q_head.forward, mixed_precision='fp16')
+
 
 class AutoregressiveQfunction(Qfunction):
-    def forward(self, queries: Tensor, query_attn_masks: Tensor, responses: Optional[Tensor] = None, only_last: bool = False) -> Dict[str, Tensor]:
+    def forward(self, queries: Tensor, query_attn_masks: Optional[Tensor] = None, responses: Optional[Tensor] = None, only_last: bool = False) -> Dict[str, Tensor]:
         if responses is not None:
             sequences = torch.cat([queries, responses], dim=1)
         else:
@@ -254,7 +266,7 @@ class AutoregressiveQfunction(Qfunction):
 
         # get the hidden state of the last layer
         if only_last:
-            last_hidden_state = outputs.hidden_states[-1][:, - 1 :,:]
+            last_hidden_state = outputs.hidden_states[-1][:, - 1 :,:].squeeze()
         else:
             last_hidden_state = outputs.hidden_states[-1][:, queries.size(1) - 1 : -1,:]
 

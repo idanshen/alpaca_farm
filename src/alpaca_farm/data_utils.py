@@ -194,3 +194,8 @@ def make_rl_data_module(
                                            query_len=training_args.query_len+training_args.response_len,)
 
     return dict(train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=DataCollatorForStackableDataset())
+
+def make_eval_data_module(tokenizer: transformers.PreTrainedTokenizer, generated_outputs_list_of_dict: List[dict]):
+    """
+    Creates a data module for evaluation of a trained model's generated samples
+    """
