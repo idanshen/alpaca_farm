@@ -323,6 +323,7 @@ def decode_prompts_with_huggingface(
     load_in_4_bits: bool = False,
     checkpoint_dir: Optional[str] = None,
     q_checkpoint_dir: Optional[str] = None,
+    flash_attn: bool = False,
     model_and_tokenizer: Optional[Tuple] = None,
     force_multisample_format: bool = False,
     seed: Optional[int] = None,
@@ -346,6 +347,7 @@ def decode_prompts_with_huggingface(
         max_instances: The maximum number of prompts to decode.
         pad_to_length: The token length to pad the prompts. This is necessary for and only used in distributed decoding.
         tf32: Whether to use tensorfloat32 for matrix multiplication.
+        flash_attn: Whether to use flash attention or not
         force_multisample_format: Whether to force the outputs to be in the multisample format.
         seed: The random seed. If None, this function is generally not deterministic, unless the seed is fixed outside.
         communication_num_chunks: Number of chunks to create for final communication.
@@ -367,6 +369,11 @@ def decode_prompts_with_huggingface(
             load_in_4_bits=load_in_4_bits,
             checkpoint_dir=checkpoint_dir,
         )
+        
+        if flash_attn:
+            print("Using Flash Attention. Notice that this feature requires per device batch size 1.")
+            from optimum import BetterTransformer
+            model = BetterTransformer.transform(model)
     
     # TODO (seungwook): assumes that the policy and q model base are the same (may need to change)
     qlogits_processor = None
@@ -384,6 +391,9 @@ def decode_prompts_with_huggingface(
         # TODO (seungwook): depending on the type of q head (weights or whole pickled model), load differently
         q_model.load_q_head(os.path.join(q_checkpoint_dir, 'adapter_model/q_head.pt'))
 
+        if flash_attn:
+            q_model = BetterTransformer.transform(q_model)
+    
         qlogits_processor = QLogitsProcessor(q_model=q_model, beta=beta)
 
     return decode_prompts_with_huggingface_given_model(

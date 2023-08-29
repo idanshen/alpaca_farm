@@ -43,6 +43,7 @@ def run_decode(
     mixed_precision=None,
     tf32=False,
     load_in_4_bits=False,
+    flash_attn=False,
     checkpoint_dir: Optional[str] = None,
     model_and_tokenizer: Optional[Tuple] = None,
     seed: Optional[int] = None,
@@ -64,6 +65,7 @@ def run_decode(
         num_return_sequences: Number of sequences to return per each prompt.
         mixed_precision: Mixed precision mode for the reward model.
         tf32: Whether to use tensorfloat32 for matrix multiplication.
+        flash_attn: Whether to use flash attention
 
     Returns:
         List of dict data with keys.
@@ -97,6 +99,7 @@ def run_decode(
         mixed_precision=mixed_precision,
         tf32=tf32,
         load_in_4_bits=load_in_4_bits,
+        flash_attn=flash_attn,
         checkpoint_dir=checkpoint_dir,
         model_and_tokenizer=model_and_tokenizer,
         seed=seed,
@@ -136,6 +139,7 @@ def run_decode_augmented(
     load_in_4_bits=False,
     checkpoint_dir: Optional[str] = None,
     q_checkpoint_dir: Optional[str] = None,
+    flash_attn = False,
     model_and_tokenizer: Optional[Tuple] = None,
     beta: float = 1.0,
     seed: Optional[int] = None,
@@ -155,6 +159,7 @@ def run_decode_augmented(
         temperature: Temperature for decoding.
         checkpoint_dir: Optional path to the checkpoint directory for the policy model
         q_checkpoint_dir: Optional path to the checkpoint directory for the q value estimator
+        flash_attn: Whether to use flash attention or not
         beta: Beta value for the q value estimator
         max_new_tokens: Maximum number of new tokens to generate.
         seed: Random seed for decoding.
@@ -197,6 +202,7 @@ def run_decode_augmented(
         load_in_4_bits=load_in_4_bits,
         checkpoint_dir=checkpoint_dir,
         q_checkpoint_dir=q_checkpoint_dir,
+        flash_attn=flash_attn,
         model_and_tokenizer=model_and_tokenizer,
         seed=seed,
         beta=beta,

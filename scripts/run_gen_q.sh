@@ -13,5 +13,6 @@ CUDA_VISIBLE_DEVICES=1 python examples/generate_qmodel.py \
   --beta 1.0 \
   --dataset_path argilla/news-summary \
   --dataset_name comparisons \
-  --fp16
+  --fp16 \
+  --flash_attn True
 

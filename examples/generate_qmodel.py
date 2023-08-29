@@ -34,6 +34,8 @@ class Arguments:
         default=12, metadata={"help": "The batch size to use for decoding."})
     load_in_4_bits: bool = field(
         default=True, metadata={"help": "Whether to load the model in 4 bits."})
+    flash_attn: bool = field(
+        default=False, metadata={"help": "If True, uses Flash Attention."})
     beta: float = field(
         default=1.0, metadata={"help": "The beta value to use for weighting the q model."})
     bf16: bool = field(
@@ -70,7 +72,8 @@ if __name__ == "__main__":
                                         temperature=args.temp, 
                                         per_device_batch_size=args.per_device_batch_size, 
                                         load_in_4_bits=args.load_in_4_bits,
-                                        mixed_precision=mixed_precision)
+                                        mixed_precision=mixed_precision,
+                                        flash_attn=args.flash_attn)
         else: 
             list_dict_data = run_decode_augmented(decoder_name_or_path=args.decoder_name_or_path,
                                         checkpoint_dir=args.decoder_checkpoint_dir,
@@ -81,6 +84,7 @@ if __name__ == "__main__":
                                         temperature=args.temp, 
                                         per_device_batch_size=args.per_device_batch_size, 
                                         load_in_4_bits=args.load_in_4_bits,
+                                        flash_attn=args.flash_attn,
                                         mixed_precision=mixed_precision,
                                         beta=args.beta,
                                         num_q_heads=args.num_q_heads,
