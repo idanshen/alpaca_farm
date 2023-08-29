@@ -49,6 +49,10 @@ if __name__ == "__main__":
     parser = transformers.HfArgumentParser(Arguments)
     args, = parser.parse_args_into_dataclasses()
 
+    # sanity checking for flash attn b/c bs needs to be 1
+    if args.flash_attn:
+        assert args.per_device_batch_size == 1, "Flash attn needs batch size of 1"
+
     # mixed precision
     if args.fp16:
         mixed_precision = 'fp16'
