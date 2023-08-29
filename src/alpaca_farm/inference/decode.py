@@ -372,7 +372,7 @@ def decode_prompts_with_huggingface(
         
         if flash_attn:
             print("Using Flash Attention. Notice that this feature requires per device batch size 1.")
-            from optimum import BetterTransformer
+            from optimum.bettertransformer import BetterTransformer
             model = BetterTransformer.transform(model)
     
     # TODO (seungwook): assumes that the policy and q model base are the same (may need to change)
