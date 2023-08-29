@@ -18,6 +18,7 @@ import math
 import sys
 from typing import Callable, List, Optional, Sequence, Tuple, Union
 import os
+from argparse import Namespace
 
 import einops
 import torch
@@ -377,10 +378,10 @@ def decode_prompts_with_huggingface(
             load_in_4_bits=load_in_4_bits,
             checkpoint_dir=q_checkpoint_dir,
         )
-        # TODO (seungwook): assumes that num_q_heads=1, but may need to change that
-        args = Namespace(num_q_heads=1, q_head_type='linear')
-        q_model = make_qfunction_with_base_model(args, q_model, q_tokenizer)
+        decoding_kwargs = Namespace(**decoding_kwargs)
+        q_model = make_qfunction_with_base_model(decoding_kwargs, q_model, q_tokenizer)
         # q_model.load_state_dict(torch.load(os.path.join(q_checkpoint_dir, 'adapter_model/q_head.pt'), map_location=q_model.device))
+        # TODO (seungwook): depending on the type of q head (weights or whole pickled model), load differently
         q_model.load_q_head(os.path.join(q_checkpoint_dir, 'adapter_model/q_head.pt'))
 
         qlogits_processor = QLogitsProcessor(q_model=q_model, beta=beta)
@@ -401,7 +402,3 @@ def decode_prompts_with_huggingface(
         logits_processor=qlogits_processor,
         **decoding_kwargs,
     )
-
-class Namespace:
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)

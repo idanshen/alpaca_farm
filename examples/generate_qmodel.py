@@ -1,5 +1,4 @@
 import os
-import argparse
 
 from dataclasses import dataclass, field
 
@@ -7,7 +6,6 @@ import transformers
 from best_of_n import run_decode_augmented, run_decode
 from alpaca_farm.utils import jload, jdump
 from alpaca_farm.auto_annotations import PairwiseAutoAnnotator, alpaca_leaderboard
-
 
 # convert the argparse into a dataclass
 @dataclass
@@ -18,6 +16,10 @@ class Arguments:
         default="./", metadata={"help": "Path to a checkpoint directory of the decoder (adapter weights)."})
     q_checkpoint_dir: str = field(
         default='', metadata={"help": "Path to a checkpoint directory of the q model (adapter weights)."})
+    num_q_heads: int = field(
+        default=1, metadata={"help": "The number of q heads to use for decoding."})
+    q_head_type: str = field(
+        default='linear', metadata={"help": "The type of q head to use for decoding."})
     dataset_path: str = field(
         default='', metadata={"help": "Path to a HF dataset."})
     dataset_name: str = field(
@@ -80,7 +82,9 @@ if __name__ == "__main__":
                                         per_device_batch_size=args.per_device_batch_size, 
                                         load_in_4_bits=args.load_in_4_bits,
                                         mixed_precision=mixed_precision,
-                                        beta=args.beta)
+                                        beta=args.beta,
+                                        num_q_heads=args.num_q_heads,
+                                        q_head_type=args.q_head_type)
             
         print('Saving generated data to {}'.format(args.path_to_result))
         OUTPUT_DIR = './outputs/'
