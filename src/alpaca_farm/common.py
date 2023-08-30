@@ -20,7 +20,7 @@ import types
 import warnings
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Union
-from optimum.bettertransformer import BetterTransformer
+#from optimum.bettertransformer import BetterTransformer
 
 import accelerate
 import torch
