@@ -39,14 +39,14 @@ from . import rl_trainer
 logger = logging.get_logger(__name__)
 
 
-class FQETrainer(rl_trainer.RLTrainer):
+class FVETrainer(rl_trainer.RLTrainer):
     def __init__(
         self,
         args,
         train_dataset: data_preprocessor.QueryDataset,
         eval_dataset: data_preprocessor.QueryDataset,
         data_collator: Callable,
-        qfunction_model: rl_models.Qfunction,
+        value_model: rl_models.Qfunction,
         ref_policy: rl_models.Policy,
         reward_model: nn.Module,
         tokenizer: List[transformers.PreTrainedTokenizer],
@@ -54,12 +54,12 @@ class FQETrainer(rl_trainer.RLTrainer):
         optimizer: Optional[torch.optim.Optimizer] = None,
         lr_scheduler: Optional[LRScheduler] = None,
     ):
-        super(FQETrainer, self).__init__(
+        super(FVETrainer, self).__init__(
             args=args,
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
             data_collator=data_collator,
-            policy=qfunction_model,
+            policy=value_model,
             ref_policy=ref_policy,
             reward_model=reward_model,
             tokenizer=tokenizer,
@@ -238,51 +238,49 @@ class FQETrainer(rl_trainer.RLTrainer):
             responses = responses[responses != self.policy_tokenizer.pad_token_id].view(1, -1)
             query_attn_masks = query_attn_masks[queries != self.policy_tokenizer.pad_token_id].view(1, -1)
             queries = queries[queries != self.policy_tokenizer.pad_token_id].view(1, -1)
-        # Compute the Q-values for the responses
-        q_values = self.policy(queries, query_attn_masks, responses)["qvalues"]
-        q_values_logits = q_values / self.args.temperature
-        q_preds = torch.gather(q_values, dim=2, index=responses.unsqueeze(-1)).squeeze(-1)
+        # Compute the Values for the responses
+        values = self.policy(queries, query_attn_masks, responses)["values"]
+        # values_logits = values / self.args.temperature
+        # q_preds = torch.gather(q_values, dim=2, index=responses.unsqueeze(-1)).squeeze(-1)
 
         with torch.no_grad():
             # Sample rollouts using the reference policy.
-            rollouts_batch = {"queries": queries, "query_attn_masks": query_attn_masks, "responses": responses}
-            ref_policy_outputs = self.ref_policy(**rollouts_batch, temperature=self.args.temperature)
-            logits, = common.unpack_dict(ref_policy_outputs, keys=("logits",))
-            # Compute the KL-divergence between the reference policy and the Q-value induced policy
-            kl_div = (q_values_logits.softmax(dim=-1) * (
-                        q_values_logits.log_softmax(dim=-1) - logits.log_softmax(dim=-1))).sum(dim=-1).mean()
+            # rollouts_batch = {"queries": queries, "query_attn_masks": query_attn_masks, "responses": responses}
+            # ref_policy_outputs = self.ref_policy(**rollouts_batch, temperature=self.args.temperature)
+            # logits, = common.unpack_dict(ref_policy_outputs, keys=("logits",))
+            # # Compute the KL-divergence between the reference policy and the Q-value induced policy
+            # kl_div = (q_values_logits.softmax(dim=-1) * (
+            #             q_values_logits.log_softmax(dim=-1) - logits.log_softmax(dim=-1))).sum(dim=-1).mean()
 
             # Compute the Q-values for the next states
             if self.args.td_one:
                 # compute TD(1) targets
-                target_q_values = returns
+                target_values = returns
             else:
                 # compute TD(0) targets
                 #  get Q-values for next states by shift action indices by 1, and append zero at the end
-                next_q_values = q_values[:, 1:, :].detach()
-                next_q_values = torch.cat([next_q_values, torch.zeros(next_q_values.shape[0], 1, len(self.policy_tokenizer)).to(self.accelerator.device)], dim=1)
+                next_values = values[:, 1:, :].detach()
+                next_values = torch.cat([next_values, torch.zeros(next_values.shape[0], 1, len(self.policy_tokenizer)).to(self.accelerator.device)], dim=1)
                 # 1-step TD target
-                target_q_values = rewards + self.args.gamma * torch.sum(next_q_values * logits.softmax(dim=-1), dim=2)
+                target_values = rewards + self.args.gamma * next_values
 
-        cql_loss = torch.sum(logits.softmax(dim=-1) * q_values_logits.log_softmax(dim=-1), dim=2).mean()
+        # cql_loss = torch.sum(logits.softmax(dim=-1) * q_values_logits.log_softmax(dim=-1), dim=2).mean()
 
-        qf_losses = (q_preds - target_q_values) ** 2.0
-        loss = qf_losses.mean() - self.kl_ctl.value * cql_loss
+        qf_losses = (values - target_values) ** 2.0
+        loss = qf_losses.mean()
 
         with torch.no_grad():
-            entropy = -(q_values_logits.softmax(dim=-1) * q_values_logits.log_softmax(dim=-1)).sum(dim=-1).mean()
+            # entropy = -(q_values_logits.softmax(dim=-1) * q_values_logits.log_softmax(dim=-1)).sum(dim=-1).mean()
             return_mean, return_var = returns.mean(), returns.var(unbiased=False)
-            value_mean, value_var = q_preds.mean(), q_preds.var(unbiased=False)
+            value_mean, value_var = values.mean(), values.var(unbiased=False)
 
         stats = dict(
             loss=dict(total=loss),
             returns=dict(mean=return_mean, var=return_var),
             val=dict(
-                error=((q_preds - returns) ** 2).mean(),
+                error=((values - returns) ** 2).mean(),
                 mean=value_mean,
                 var=value_var,
-                entropy=entropy,
-                kl_div=kl_div,
             ),
         )
         return loss, common.flatten_dict(stats, sep="/", postprocess_fn=lambda x: x.detach())
@@ -328,7 +326,7 @@ class FQETrainer(rl_trainer.RLTrainer):
 
         aggregated_loss = []
         for batch in tqdm.tqdm(self.eval_dataloader,  disable=not self.accelerator.is_main_process, desc="Evaluating"):
-            queries, query_attn_masks, values = common.prepare_inputs(
+            queries, query_attn_masks, target_values = common.prepare_inputs(
                 common.unpack_dict(
                     batch,
                     keys=("queries", "query_attn_masks", "values"),
@@ -342,22 +340,22 @@ class FQETrainer(rl_trainer.RLTrainer):
                 query_attn_masks = query_attn_masks[queries != self.policy_tokenizer.pad_token_id].view(1, -1)
                 queries = queries[queries != self.policy_tokenizer.pad_token_id].view(1, -1)
 
-            # Remove the last token from the queries
-            queries = queries[:, :-1]
-            query_attn_masks = query_attn_masks[:, :-1]
-            last_token = queries[:, -1:]
+            # # Remove the last token from the queries
+            # queries = queries[:, :-1]
+            # query_attn_masks = query_attn_masks[:, :-1]
+            # last_token = queries[:, -1]
 
             # Start evaluation.
             self.policy.eval()
             self._make_fsdp_happy()  # we can keep this b/c it automatically checks if fsdp or not
 
             # Compute the Q-values for the responses
-            q_values = self.policy(queries, query_attn_masks, only_last=True)["qvalues"]
-            q_values = torch.gather(q_values, dim=1, index=last_token).squeeze(-1)
+            values = self.policy(queries, query_attn_masks, only_last=True)["values"]
+            # values = torch.gather(q_values.squeeze(1), dim=1, index=last_token.unsqueeze(-1)).squeeze(-1)
 
             # Compute the loss
-            assert q_values.shape == values.shape, f"{q_values.shape} != {values.shape}"
-            batch_loss = (q_values - values) ** 2.0
+            assert values.shape == target_values.shape
+            batch_loss = (values - target_values) ** 2.0
             aggregated_loss.append(batch_loss)
 
         aggregated_loss = torch.cat(aggregated_loss, dim=0)
@@ -409,7 +407,7 @@ class FQETrainer(rl_trainer.RLTrainer):
             unwrapped = model.base_model
             peft_model_path = os.path.join(output_dir, "adapter_model")
             save_peft_model(unwrapped, peft_model_path)
-            torch.save(model.q_head, os.path.join(output_dir, "q_head.pt")) # TODO (seungwook): should probs save its weights not the whole model
+            torch.save(model.value_head, os.path.join(output_dir, "value_head.pt")) # TODO (seungwook): should probs save its weights not the whole model
 
             assert isinstance(
                 unwrapped, (transformers.OPTForCausalLM, transformers.LlamaForCausalLM, peft.PeftModelForCausalLM)
@@ -529,19 +527,19 @@ def make_models(
     if args.init_value_with_reward:
         # Initialize value from reward model a la OAI.
         logger.warning("Initializing value model with reward model.")
-        qfunction_model = rl_models.make_qfunction_with_base_model(args, make_reward_model(is_trainable=True).backbone_model, policy_tokenizer)
+        value_model = rl_models.make_value_with_base_model(args, make_reward_model(is_trainable=True).backbone_model, policy_tokenizer)
     else:
         logger.warning("Initializing value model with policy model.")
         # Initialize value from policy. Works for sanity, but generally performs worse in instruction-following.
         # initializing value model with reward model won't work with encoder-decoder-based models
-        qfunction_model = rl_models.make_qfunction_with_base_model(args, make_generative_policy(is_trainable=True), policy_tokenizer)
+        value_model = rl_models.make_value_with_base_model(args, make_generative_policy(is_trainable=True), policy_tokenizer)
     # actor_critic = rl_models.ActorCritic(policy=None, value_model=value_model)
     # We cast how respond should run. It's important the dtypes be consistent with training, since a bf16
     # fine-tuned model might not work with fp16 inference.
     # Cast step below must precede accelerator.prepare(), since wrapped model might not have `respond` method.
 
-    qfunction_model = common.prepare_model_for_custom_fn(model=qfunction_model, fn_name="respond", accelerator=accelerator)
-    qfunction_model = accelerator.prepare(qfunction_model)  # noqa
+    value_model = common.prepare_model_for_custom_fn(model=value_model, fn_name="respond", accelerator=accelerator)
+    value_model = accelerator.prepare(value_model)  # noqa
 
     ref_policy = rl_models.make_policy_with_base_model(args, make_generative_policy(is_trainable=False), policy_tokenizer)
     ref_policy.requires_grad_(False)
@@ -555,6 +553,6 @@ def make_models(
     if accelerator.distributed_type == accelerate.DistributedType.FSDP:
         inputs = tokenizer[0]("fsdp are you happy now??? :)" * 50, return_tensors="pt")
         inputs = {key: value.to(accelerator.device) for key, value in inputs.items()}
-        qfunction_model(inputs["input_ids"], inputs["attention_mask"], inputs["input_ids"])
+        value_model(inputs["input_ids"], inputs["attention_mask"], inputs["input_ids"])
 
-    return dict(qfunction_model=qfunction_model, ref_policy=ref_policy, reward_model=reward_model)
+    return dict(value_model=value_model, ref_policy=ref_policy, reward_model=reward_model)
