@@ -160,8 +160,11 @@ class Value(nn.Module, abc.ABC):
 
 
 class AutoregressiveValue(Value):
-    def forward(self, queries: Tensor, query_attn_masks: Tensor, responses: Tensor) -> Dict[str, Tensor]:
-        sequences = torch.cat([queries, responses], dim=1)
+    def forward(self, queries: Tensor, query_attn_masks: Optional[Tensor] = None, responses: Optional[Tensor] = None, only_last: bool = False) -> Dict[str, Tensor]:
+        if responses is not None:
+            sequences = torch.cat([queries, responses], dim=1)
+        else:
+            sequences = queries
         sequence_attn_masks = sequences.ne(self.base_tokenizer.pad_token_id)
 
         inputs = self.base_model.prepare_inputs_for_generation(
@@ -170,10 +173,15 @@ class AutoregressiveValue(Value):
             use_cache=False,
         )
         outputs = self.base_model.model(**inputs, output_hidden_states=True)
-        # value[t]: \hat{V}(sequences_{:t-1}); must align with `_estimate_advantage`.
-        last_hidden_state = outputs.hidden_states[-1][:, queries.size(1) - 1 : -1]
-        if last_hidden_state.dtype != torch.float32:
-            last_hidden_state = last_hidden_state.float()
+        # get the hidden state of the last layer
+        if only_last:
+            last_hidden_state = outputs.hidden_states[-1][:, - 1:, :].squeeze(1)
+        else:
+            # value[t]: \hat{V}(sequences_{:t-1}); must align with `_estimate_advantage`.
+            last_hidden_state = outputs.hidden_states[-1][:, queries.size(1) - 1: -1, :]
+
+        if last_hidden_state.dtype != self.value_head.weight.dtype:
+            last_hidden_state = last_hidden_state.type(self.value_head.weight.dtype)
         values = self.value_head(last_hidden_state).squeeze(-1)
         return dict(values=values)
 
@@ -266,7 +274,7 @@ class AutoregressiveQfunction(Qfunction):
 
         # get the hidden state of the last layer
         if only_last:
-            last_hidden_state = outputs.hidden_states[-1][:, - 1 :,:].squeeze()
+            last_hidden_state = outputs.hidden_states[-1][:, - 1 :,:].squeeze(1)
         else:
             last_hidden_state = outputs.hidden_states[-1][:, queries.size(1) - 1 : -1,:]
 
