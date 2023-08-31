@@ -123,7 +123,11 @@ if __name__ == "__main__":
         raise Exception('Output file(s) not found!')
     
     print('Loaded data, now evaluating reward scores...')
+    # set up tokenizer and set padding and truncation side to the right
     reward_tokenizer: transformers.PreTrainedTokenizer = _make_left_padded_tokenizer(model_name_or_path=args.reward_model_name_or_path)
+    reward_tokenizer.padding_side = "right"
+    reward_tokenizer.truncation_side = "right"
+    
     reward_model = make_reward_model(args=args)
 
     # mixed precision
