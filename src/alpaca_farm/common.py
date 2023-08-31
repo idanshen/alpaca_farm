@@ -246,12 +246,15 @@ def get_accelerate_sc_model(
 
     print(f'loading base model {model_name_or_path}...')
     compute_dtype = (torch.bfloat16 if bfloat16 else torch.float16)
-    q_config = BitsAndBytesConfig(
-            load_in_4bit=four_bits,
-            bnb_4bit_compute_dtype=compute_dtype,
-            bnb_4bit_use_double_quant=four_bits,
-            bnb_4bit_quant_type='nf4'  # by default, options are {'fp4', 'nf4'}
-            )
+    
+    q_config = None
+    if four_bits:
+        q_config = BitsAndBytesConfig(
+                load_in_4bit=four_bits,
+                bnb_4bit_compute_dtype=compute_dtype,
+                bnb_4bit_use_double_quant=four_bits,
+                bnb_4bit_quant_type='nf4'  # by default, options are {'fp4', 'nf4'}
+                )
 
     # for older models, load_in_4bit=False b/c no linear layers
     # if model_name_or_path == 'Tristan/gpt2_reward_summarization':
@@ -280,10 +283,14 @@ def get_accelerate_sc_model(
 
     model.config.torch_dtype = torch.bfloat16 if bfloat16 else torch.float16
 
-    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=gradient_checkpointing)
-    if gradient_checkpointing:
-        model.gradient_checkpointing_enable()
+    if is_trainable:
+        model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=gradient_checkpointing)
+        
+        # TODO (seungwook): this seems redundant
+        if gradient_checkpointing:
+            model.gradient_checkpointing_enable()
 
+    # TODO (seungwook): this all seems redundant -- prepare_model_for_kbit_training should take care of everything
     if gradient_checkpointing:
         if hasattr(model, "enable_input_require_grads"):
             model.enable_input_require_grads()
@@ -292,6 +299,7 @@ def get_accelerate_sc_model(
                 output.requires_grad_(True)
             model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
 
+    # TODO (seungwook): why are we doing this manual casting of dtype?
     for name, module in model.named_modules():
         if isinstance(module, LoraLayer):
             if bfloat16:
