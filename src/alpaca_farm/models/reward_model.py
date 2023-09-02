@@ -14,6 +14,7 @@
 import os.path
 from functools import partial
 
+import accelerate
 import torch
 import transformers
 from torch import Tensor, nn
@@ -39,12 +40,17 @@ class RewardModelOutput(ModelOutput):
 class RewardModel(transformers.PreTrainedModel):
     config_class = RewardConfig
 
-    def __init__(self, config: RewardConfig, pretrained_lora_weights: str = None, **kwargs):
+    def __init__(self, config: RewardConfig, accelerator: accelerate.Accelerator, pretrained_lora_weights: str = None, **kwargs):
         super(RewardModel, self).__init__(config)
+        self.accelerator = accelerator
+
         self.backbone_model = common.get_accelerate_model(
             model_name_or_path=config.backbone_model_name_or_path,
             pretrained_lora_weights=pretrained_lora_weights,
+            accelerator=accelerator,
             **kwargs)
+
+        hidden_layer_device = list(self.backbone_model.parameters())[-1].device
 
         self.model_parallel = True
         self.is_parallelizable = True
@@ -52,11 +58,12 @@ class RewardModel(transformers.PreTrainedModel):
         hidden_size = common.get_transformer_hidden_size(self.backbone_model)
         reward_head = nn.Linear(hidden_size, 1)
         torch.nn.init.zeros_(reward_head.bias)
-        self.reward_head = reward_head.to(0)
+        self.reward_head = reward_head.to(hidden_layer_device)
+
         if pretrained_lora_weights is not None:
             print("load reward head from checkpoint")
             if os.path.exists(pretrained_lora_weights + "/reward_head.pt"):
-                self.reward_head = torch.load(pretrained_lora_weights + "/reward_head.pt").to(list(self.backbone_model.parameters())[-1].device)
+                self.reward_head = torch.load(pretrained_lora_weights + "/reward_head.pt").to(hidden_layer_device)
             else:
                 print("reward head not found, use random initialization")
 
@@ -66,12 +73,10 @@ class RewardModel(transformers.PreTrainedModel):
         outputs = self.backbone_model(
             input_ids=input_ids, attention_mask=attention_mask, return_dict=True, output_hidden_states=True, **kwargs
         )
-        last_hidden_state = outputs.hidden_states[-1]
-        last_hidden_state_at_the_end = last_hidden_state[:, -1, :]
-        # TODO(lxuechen): Make returning rewards at all positions and last_hidden_state an option.
-        if last_hidden_state_at_the_end.dtype != torch.float32:
-            last_hidden_state_at_the_end = last_hidden_state_at_the_end.float()
-        rewards = self.reward_head(last_hidden_state_at_the_end).squeeze(-1)
+        with self.accelerator.autocast():
+            last_hidden_state = outputs.hidden_states[-1]
+            last_hidden_state_at_the_end = last_hidden_state[:, -1, :]
+            rewards = self.reward_head(last_hidden_state_at_the_end).squeeze(-1)
         return RewardModelOutput(rewards=rewards) if return_dict else (rewards,)
 
     def get_input_embeddings(self) -> nn.Module:
@@ -89,12 +94,15 @@ class RewardModel(transformers.PreTrainedModel):
 
 class RewardNoLoraModel(transformers.PreTrainedModel):
     config_class = RewardConfig
-    def __init__(self, config: RewardConfig, **kwargs):
+
+    def __init__(self, config: RewardConfig, accelerator: accelerate.Accelerator, **kwargs):
         super(RewardNoLoraModel, self).__init__(config)
+        self.accelerator = accelerator
         print('Initializing reward model that is not lora based')
 
         self.model = common.get_accelerate_sc_model(
                     model_name_or_path=config.backbone_model_name_or_path,
+                    accelerator=accelerator,
                     **kwargs)
         self.backbone_model = self.model.transformer if hasattr(self.model, 'transformer') else self.model.model # TODO (seungwook): may need to fix for other models
         self.reward_head = self.model.score if hasattr(self.model, 'score') else None
@@ -116,8 +124,9 @@ class RewardNoLoraModel(transformers.PreTrainedModel):
     def forward(self, input_ids, attention_mask=None, return_dict=True, **kwargs):
         # We only compute the rewards and don't compute the logistic regression loss in this function so that it's
         # easier to use for later stages of reranking / RL training.
-        outputs = self.model(input_ids, attention_mask=attention_mask, return_dict=True, **kwargs)
-        rewards = self.function_to_apply(outputs.logits).squeeze(-1)
+        with self.accelerator.autocast():
+            outputs = self.model(input_ids, attention_mask=attention_mask, return_dict=True, **kwargs)
+            rewards = self.function_to_apply(outputs.logits).squeeze(-1)
         
         # special case of bart summarization reward model, need to take the difference btw faithful (label 1) and hallucination (label 0)
         # TODO (seungwook): may need to fix later for other reward models

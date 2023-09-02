@@ -240,18 +240,8 @@ class FVETrainer(rl_trainer.RLTrainer):
             queries = queries[queries != self.policy_tokenizer.pad_token_id].view(1, -1)
         # Compute the Values for the responses
         values = self.policy(queries, query_attn_masks, responses)["values"]
-        # values_logits = values / self.args.temperature
-        # q_preds = torch.gather(q_values, dim=2, index=responses.unsqueeze(-1)).squeeze(-1)
 
         with torch.no_grad():
-            # Sample rollouts using the reference policy.
-            # rollouts_batch = {"queries": queries, "query_attn_masks": query_attn_masks, "responses": responses}
-            # ref_policy_outputs = self.ref_policy(**rollouts_batch, temperature=self.args.temperature)
-            # logits, = common.unpack_dict(ref_policy_outputs, keys=("logits",))
-            # # Compute the KL-divergence between the reference policy and the Q-value induced policy
-            # kl_div = (q_values_logits.softmax(dim=-1) * (
-            #             q_values_logits.log_softmax(dim=-1) - logits.log_softmax(dim=-1))).sum(dim=-1).mean()
-
             # Compute the Q-values for the next states
             if self.args.td_one:
                 # compute TD(1) targets
@@ -264,13 +254,10 @@ class FVETrainer(rl_trainer.RLTrainer):
                 # 1-step TD target
                 target_values = rewards + self.args.gamma * next_values
 
-        # cql_loss = torch.sum(logits.softmax(dim=-1) * q_values_logits.log_softmax(dim=-1), dim=2).mean()
-
         qf_losses = (values - target_values) ** 2.0
         loss = qf_losses.mean()
 
         with torch.no_grad():
-            # entropy = -(q_values_logits.softmax(dim=-1) * q_values_logits.log_softmax(dim=-1)).sum(dim=-1).mean()
             return_mean, return_var = returns.mean(), returns.var(unbiased=False)
             value_mean, value_var = values.mean(), values.var(unbiased=False)
 
@@ -286,8 +273,6 @@ class FVETrainer(rl_trainer.RLTrainer):
         return loss, common.flatten_dict(stats, sep="/", postprocess_fn=lambda x: x.detach())
 
     def record_step_stats(self, train_stats, rollouts, step_idx, **kwargs):
-        # kl = rollouts["kl"]
-        # kl_sum_seq, kl_avg_seq = kl.sum(dim=1).mean(dim=0), kl.mean()
         shaped_rewards = rollouts["shaped_rewards"].sum(dim=1).mean(dim=0)
         non_score_rewards = rollouts["non_score_rewards"].sum(dim=1).mean(dim=0)
         rewards = rollouts["rewards"].mean(dim=0)
@@ -480,14 +465,14 @@ def make_models(
             pretrained_lora_weights=args.policy_model_checkpoint_dir,
             transformer_cache_dir=args.transformer_cache_dir,
             four_bits=args.four_bits,
-            bfloat16=args.bfloat16,
             use_lora=args.use_lora,
             lora_r=args.lora_r,
             lora_alpha=args.lora_alpha,
             lora_dropout=args.lora_dropout,
             gradient_checkpointing=args.gradient_checkpointing,
             flash_attn=args.flash_attn,
-            is_trainable=is_trainable,)
+            is_trainable=is_trainable,
+            accelerator=accelerator,)
         return base_model
 
     def make_reward_model(is_trainable):
@@ -496,17 +481,16 @@ def make_models(
         if reward_model_config.backbone_model_name_or_path != 'huggyllama/llama-7b':
             base_reward_model = reward_model_module.RewardNoLoraModel(
                 transformer_cache_dir=args.transformer_cache_dir,
-                four_bits=args.four_bits,
-                bfloat16=args.bfloat16,
+                four_bits=False,
                 gradient_checkpointing=args.gradient_checkpointing,
                 flash_attn=args.flash_attn,
                 is_trainable=is_trainable,
-                config=reward_model_config, )
+                config=reward_model_config,
+                accelerator=accelerator,)
         else:
             base_reward_model = reward_model_module.RewardModel(
                 transformer_cache_dir=args.transformer_cache_dir,
                 four_bits=args.four_bits,
-                bfloat16=args.bfloat16,
                 use_lora=args.use_lora,
                 lora_r=args.lora_r,
                 lora_alpha=args.lora_alpha,
@@ -515,7 +499,8 @@ def make_models(
                 flash_attn=args.flash_attn,
                 pretrained_lora_weights=args.reward_model_checkpoint_dir,
                 is_trainable=is_trainable,
-                config=reward_model_config, )
+                config=reward_model_config,
+                accelerator=accelerator,)
         return base_reward_model
 
     # Model construction below seems convoluted, but it's made to trade time for RAM efficiency.

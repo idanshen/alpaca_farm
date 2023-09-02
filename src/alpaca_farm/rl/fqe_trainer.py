@@ -482,14 +482,14 @@ def make_models(
             pretrained_lora_weights=args.policy_model_checkpoint_dir,
             transformer_cache_dir=args.transformer_cache_dir,
             four_bits=args.four_bits,
-            bfloat16=args.bfloat16,
             use_lora=args.use_lora,
             lora_r=args.lora_r,
             lora_alpha=args.lora_alpha,
             lora_dropout=args.lora_dropout,
             gradient_checkpointing=args.gradient_checkpointing,
             flash_attn=args.flash_attn,
-            is_trainable=is_trainable,)
+            is_trainable=is_trainable,
+            accelerator=accelerator,)
         return base_model
 
     def make_reward_model(is_trainable):
@@ -498,17 +498,16 @@ def make_models(
         if reward_model_config.backbone_model_name_or_path != 'huggyllama/llama-7b':
             base_reward_model = reward_model_module.RewardNoLoraModel(
                 transformer_cache_dir=args.transformer_cache_dir,
-                four_bits=args.four_bits,
-                bfloat16=args.bfloat16,
+                four_bits=False,
                 gradient_checkpointing=args.gradient_checkpointing,
                 flash_attn=args.flash_attn,
                 is_trainable=is_trainable,
-                config=reward_model_config, )
+                config=reward_model_config,
+                accelerator=accelerator,)
         else:
             base_reward_model = reward_model_module.RewardModel(
                 transformer_cache_dir=args.transformer_cache_dir,
                 four_bits=args.four_bits,
-                bfloat16=args.bfloat16,
                 use_lora=args.use_lora,
                 lora_r=args.lora_r,
                 lora_alpha=args.lora_alpha,
@@ -517,7 +516,8 @@ def make_models(
                 flash_attn=args.flash_attn,
                 pretrained_lora_weights=args.reward_model_checkpoint_dir,
                 is_trainable=is_trainable,
-                config=reward_model_config, )
+                config=reward_model_config,
+                accelerator=accelerator,)
         return base_reward_model
 
     # Model construction below seems convoluted, but it's made to trade time for RAM efficiency.
