@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from best_of_n import run_decode_augmented
 from alpaca_farm.utils import jload, jdump
-from alpaca_farm.auto_annotations import PairwiseAutoAnnotator, alpaca_leaderboard_general
+from alpaca_farm.auto_annotations.eval import alpaca_leaderboard_general
 
 # Set up argparse to take in the model name and checkpoint dir
 parser = argparse.ArgumentParser()
@@ -32,8 +32,6 @@ class Arguments:
     exp_name: str = field(default="eval_outputs_llm", metadata={"help": "The name of the experiment."}),
 
 if __name__ == "__main__":
-
-
     if 'OPENAI_API_KEY' not in os.environ:
         decoding_kwargs = dict(
             openai_api_key = "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",
