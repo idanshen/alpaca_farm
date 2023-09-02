@@ -149,7 +149,7 @@ class Value(nn.Module, abc.ABC):
         self.base_tokenizer = base_tokenizer
         self.accelerator = accelerator
         hidden_size = common.get_transformer_hidden_size(base_model)
-        hidden_layer_device = list(self.backbone_model.parameters())[-1].device
+        hidden_layer_device = list(self.base_model.parameters())[-1].device
 
         value_head = torch.nn.Linear(hidden_size, 1)
         value_head.weight.data.zero_()
@@ -228,7 +228,7 @@ class Qfunction(nn.Module, abc.ABC):
         self.accelerator = accelerator
 
         hidden_size = common.get_transformer_hidden_size(base_model)
-        hidden_layer_device = list(self.backbone_model.parameters())[-1].device
+        hidden_layer_device = list(self.base_model.parameters())[-1].device
         self.head_device = hidden_layer_device
 
         self.feature_size = hidden_size
@@ -310,18 +310,20 @@ def make_value_with_base_model(
     args,
     base_model: transformers.PreTrainedModel,
     base_tokenizer: transformers.PreTrainedTokenizer,
+    accelerator: accelerate.Accelerator,
 ) -> Value:
     if base_model.config.is_encoder_decoder:
         raise NotImplementedError
     else:
-        return AutoregressiveValue(args, base_model, base_tokenizer)
+        return AutoregressiveValue(args, base_model, base_tokenizer, accelerator)
 
 def make_qfunction_with_base_model(
     args,
     base_model: transformers.PreTrainedModel,
     base_tokenizer: transformers.PreTrainedTokenizer,
+    accelerator: accelerate.Accelerator,
 ) -> Qfunction:
     if base_model.config.is_encoder_decoder:
         raise NotImplementedError
     else:
-        return AutoregressiveQfunction(args, base_model, base_tokenizer)
+        return AutoregressiveQfunction(args, base_model, base_tokenizer, accelerator)

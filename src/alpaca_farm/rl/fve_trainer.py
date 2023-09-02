@@ -47,7 +47,6 @@ class FVETrainer(rl_trainer.RLTrainer):
         eval_dataset: data_preprocessor.QueryDataset,
         data_collator: Callable,
         value_model: rl_models.Qfunction,
-        ref_policy: rl_models.Policy,
         reward_model: nn.Module,
         tokenizer: List[transformers.PreTrainedTokenizer],
         accelerator: accelerate_patch.MyAccelerator,
@@ -60,7 +59,7 @@ class FVETrainer(rl_trainer.RLTrainer):
             eval_dataset=eval_dataset,
             data_collator=data_collator,
             policy=value_model,
-            ref_policy=ref_policy,
+            ref_policy=None,
             reward_model=reward_model,
             tokenizer=tokenizer,
             accelerator=accelerator,
@@ -512,23 +511,18 @@ def make_models(
     if args.init_value_with_reward:
         # Initialize value from reward model a la OAI.
         logger.warning("Initializing value model with reward model.")
-        value_model = rl_models.make_value_with_base_model(args, make_reward_model(is_trainable=True).backbone_model, policy_tokenizer)
+        value_model = rl_models.make_value_with_base_model(args, make_reward_model(is_trainable=True).backbone_model, policy_tokenizer, accelerator)
     else:
         logger.warning("Initializing value model with policy model.")
         # Initialize value from policy. Works for sanity, but generally performs worse in instruction-following.
         # initializing value model with reward model won't work with encoder-decoder-based models
-        value_model = rl_models.make_value_with_base_model(args, make_generative_policy(is_trainable=True), policy_tokenizer)
-    # actor_critic = rl_models.ActorCritic(policy=None, value_model=value_model)
-    # We cast how respond should run. It's important the dtypes be consistent with training, since a bf16
-    # fine-tuned model might not work with fp16 inference.
-    # Cast step below must precede accelerator.prepare(), since wrapped model might not have `respond` method.
+        value_model = rl_models.make_value_with_base_model(args, make_generative_policy(is_trainable=True), policy_tokenizer, accelerator)
 
-    value_model = common.prepare_model_for_custom_fn(model=value_model, fn_name="respond", accelerator=accelerator)
     value_model = accelerator.prepare(value_model)  # noqa
 
-    ref_policy = rl_models.make_policy_with_base_model(args, make_generative_policy(is_trainable=False), policy_tokenizer)
-    ref_policy.requires_grad_(False)
-    ref_policy = accelerator.prepare(ref_policy)  # noqa
+    # ref_policy = rl_models.make_policy_with_base_model(args, make_generative_policy(is_trainable=False), policy_tokenizer)
+    # ref_policy.requires_grad_(False)
+    # ref_policy = accelerator.prepare(ref_policy)  # noqa
 
     reward_model = make_reward_model(is_trainable=False)
     reward_model.requires_grad_(False)
@@ -540,4 +534,4 @@ def make_models(
         inputs = {key: value.to(accelerator.device) for key, value in inputs.items()}
         value_model(inputs["input_ids"], inputs["attention_mask"], inputs["input_ids"])
 
-    return dict(value_model=value_model, ref_policy=ref_policy, reward_model=reward_model)
+    return dict(value_model=value_model, reward_model=reward_model)

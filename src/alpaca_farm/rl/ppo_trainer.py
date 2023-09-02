@@ -239,6 +239,18 @@ class PPOTrainer(rl_trainer.RLTrainer):
             ),
             device=self.accelerator.device,
         )
+
+        batch_size = responses.size(0)
+        if batch_size == 1:
+            # remove all padding tokens
+            returns = returns[responses != self.policy_tokenizer.pad_token_id].view(1, -1)
+            values = values[responses != self.policy_tokenizer.pad_token_id].view(1, -1)
+            advantages = advantages[responses != self.policy_tokenizer.pad_token_id].view(1, -1)
+            old_logprob = old_logprob[responses != self.policy_tokenizer.pad_token_id].view(1, -1)
+            responses = responses[responses != self.policy_tokenizer.pad_token_id].view(1, -1)
+            query_attn_masks = query_attn_masks[queries != self.policy_tokenizer.pad_token_id].view(1, -1)
+            queries = queries[queries != self.policy_tokenizer.pad_token_id].view(1, -1)
+
         outputs = self.policy(queries, query_attn_masks, responses, temperature=self.args.temperature)
 
         vpred = outputs["values"]
@@ -490,11 +502,11 @@ def make_models(
         # Initialize value from reward model a la OAI.
         logger.warning("Initializing value model with reward model.")
         # initializing value model with reward model won't work with encoder-decoder-based models
-        value_model = rl_models.make_value_with_base_model(args, make_reward_model(is_trainable=True).backbone_model, reward_tokenizer)
+        value_model = rl_models.make_value_with_base_model(args, make_reward_model(is_trainable=True).backbone_model, reward_tokenizer, accelerator)
     else:
         logger.warning("Initializing value model with policy model.")
         # Initialize value from policy. Works for sanity, but generally performs worse in instruction-following.
-        value_model = rl_models.make_value_with_base_model(args, make_generative_policy(is_trainable=True), policy_tokenizer)
+        value_model = rl_models.make_value_with_base_model(args, make_generative_policy(is_trainable=True), policy_tokenizer, accelerator)
     actor_critic = rl_models.ActorCritic(policy=policy, value_model=value_model)
     # We cast how respond should run. It's important the dtypes be consistent with training, since a bf16
     # fine-tuned model might not work with fp16 inference.

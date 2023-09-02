@@ -529,19 +529,14 @@ def make_models(
     if args.init_value_with_reward:
         # Initialize value from reward model a la OAI.
         logger.warning("Initializing value model with reward model.")
-        qfunction_model = rl_models.make_qfunction_with_base_model(args, make_reward_model(is_trainable=True).backbone_model, policy_tokenizer)
+        qfunction_model = rl_models.make_qfunction_with_base_model(args, make_reward_model(is_trainable=True).backbone_model, policy_tokenizer, accelerator)
     else:
         logger.warning("Initializing value model with policy model.")
         # Initialize value from policy. Works for sanity, but generally performs worse in instruction-following.
         # initializing value model with reward model won't work with encoder-decoder-based models
-        qfunction_model = rl_models.make_qfunction_with_base_model(args, make_generative_policy(is_trainable=True), policy_tokenizer)
-    # actor_critic = rl_models.ActorCritic(policy=None, value_model=value_model)
-    # We cast how respond should run. It's important the dtypes be consistent with training, since a bf16
-    # fine-tuned model might not work with fp16 inference.
-    # Cast step below must precede accelerator.prepare(), since wrapped model might not have `respond` method.
+        qfunction_model = rl_models.make_qfunction_with_base_model(args, make_generative_policy(is_trainable=True), policy_tokenizer, accelerator)
 
-    qfunction_model = common.prepare_model_for_custom_fn(model=qfunction_model, fn_name="respond", accelerator=accelerator)
-    qfunction_model = accelerator.prepare(qfunction_model)  # noqa
+    qfunction_model = accelerator.prepare(qfunction_model)
 
     ref_policy = rl_models.make_policy_with_base_model(args, make_generative_policy(is_trainable=False), policy_tokenizer)
     ref_policy.requires_grad_(False)
