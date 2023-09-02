@@ -230,7 +230,14 @@ class FQETrainer(rl_trainer.RLTrainer):
             ),
             device=self.accelerator.device,
         )
-
+        batch_size = responses.size(0)
+        if batch_size == 1:
+            # remove all padding tokens
+            returns = returns[responses != self.policy_tokenizer.pad_token_id].view(1, -1)
+            rewards = rewards[responses != self.policy_tokenizer.pad_token_id].view(1, -1)
+            responses = responses[responses != self.policy_tokenizer.pad_token_id].view(1, -1)
+            query_attn_masks = query_attn_masks[queries != self.policy_tokenizer.pad_token_id].view(1, -1)
+            queries = queries[queries != self.policy_tokenizer.pad_token_id].view(1, -1)
         # Compute the Q-values for the responses
         q_values = self.policy(queries, query_attn_masks, responses)["qvalues"]
         q_values_logits = q_values / self.args.temperature
@@ -329,10 +336,16 @@ class FQETrainer(rl_trainer.RLTrainer):
                 device=self.accelerator.device,
             )
 
+            batch_size = queries.shape[0]
+            if batch_size == 1:
+                # remove all padding tokens
+                query_attn_masks = query_attn_masks[queries != self.policy_tokenizer.pad_token_id].view(1, -1)
+                queries = queries[queries != self.policy_tokenizer.pad_token_id].view(1, -1)
+
             # Remove the last token from the queries
             queries = queries[:, :-1]
             query_attn_masks = query_attn_masks[:, :-1]
-            last_token = queries[:, -1]
+            last_token = queries[:, -1:]
 
             # Start evaluation.
             self.policy.eval()
@@ -340,10 +353,10 @@ class FQETrainer(rl_trainer.RLTrainer):
 
             # Compute the Q-values for the responses
             q_values = self.policy(queries, query_attn_masks, only_last=True)["qvalues"]
-            q_values = torch.gather(q_values.squeeze(1), dim=1, index=last_token.unsqueeze(-1)).squeeze(-1)
+            q_values = torch.gather(q_values, dim=1, index=last_token).squeeze(-1)
 
             # Compute the loss
-            assert q_values.shape == values.shape
+            assert q_values.shape == values.shape, f"{q_values.shape} != {values.shape}"
             batch_loss = (q_values - values) ** 2.0
             aggregated_loss.append(batch_loss)
 
@@ -469,14 +482,14 @@ def make_models(
             pretrained_lora_weights=args.policy_model_checkpoint_dir,
             transformer_cache_dir=args.transformer_cache_dir,
             four_bits=args.four_bits,
-            bfloat16=args.bfloat16,
             use_lora=args.use_lora,
             lora_r=args.lora_r,
             lora_alpha=args.lora_alpha,
             lora_dropout=args.lora_dropout,
             gradient_checkpointing=args.gradient_checkpointing,
             flash_attn=args.flash_attn,
-            is_trainable=is_trainable,)
+            is_trainable=is_trainable,
+            accelerator=accelerator,)
         return base_model
 
     def make_reward_model(is_trainable):
@@ -485,17 +498,16 @@ def make_models(
         if reward_model_config.backbone_model_name_or_path != 'huggyllama/llama-7b':
             base_reward_model = reward_model_module.RewardNoLoraModel(
                 transformer_cache_dir=args.transformer_cache_dir,
-                four_bits=args.four_bits,
-                bfloat16=args.bfloat16,
+                four_bits=False,
                 gradient_checkpointing=args.gradient_checkpointing,
                 flash_attn=args.flash_attn,
                 is_trainable=is_trainable,
-                config=reward_model_config, )
+                config=reward_model_config,
+                accelerator=accelerator,)
         else:
             base_reward_model = reward_model_module.RewardModel(
                 transformer_cache_dir=args.transformer_cache_dir,
                 four_bits=args.four_bits,
-                bfloat16=args.bfloat16,
                 use_lora=args.use_lora,
                 lora_r=args.lora_r,
                 lora_alpha=args.lora_alpha,
@@ -504,7 +516,8 @@ def make_models(
                 flash_attn=args.flash_attn,
                 pretrained_lora_weights=args.reward_model_checkpoint_dir,
                 is_trainable=is_trainable,
-                config=reward_model_config, )
+                config=reward_model_config,
+                accelerator=accelerator,)
         return base_reward_model
 
     # Model construction below seems convoluted, but it's made to trade time for RAM efficiency.
@@ -516,19 +529,14 @@ def make_models(
     if args.init_value_with_reward:
         # Initialize value from reward model a la OAI.
         logger.warning("Initializing value model with reward model.")
-        qfunction_model = rl_models.make_qfunction_with_base_model(args, make_reward_model(is_trainable=True).backbone_model, policy_tokenizer)
+        qfunction_model = rl_models.make_qfunction_with_base_model(args, make_reward_model(is_trainable=True).backbone_model, policy_tokenizer, accelerator)
     else:
         logger.warning("Initializing value model with policy model.")
         # Initialize value from policy. Works for sanity, but generally performs worse in instruction-following.
         # initializing value model with reward model won't work with encoder-decoder-based models
-        qfunction_model = rl_models.make_qfunction_with_base_model(args, make_generative_policy(is_trainable=True), policy_tokenizer)
-    # actor_critic = rl_models.ActorCritic(policy=None, value_model=value_model)
-    # We cast how respond should run. It's important the dtypes be consistent with training, since a bf16
-    # fine-tuned model might not work with fp16 inference.
-    # Cast step below must precede accelerator.prepare(), since wrapped model might not have `respond` method.
+        qfunction_model = rl_models.make_qfunction_with_base_model(args, make_generative_policy(is_trainable=True), policy_tokenizer, accelerator)
 
-    qfunction_model = common.prepare_model_for_custom_fn(model=qfunction_model, fn_name="respond", accelerator=accelerator)
-    qfunction_model = accelerator.prepare(qfunction_model)  # noqa
+    qfunction_model = accelerator.prepare(qfunction_model)
 
     ref_policy = rl_models.make_policy_with_base_model(args, make_generative_policy(is_trainable=False), policy_tokenizer)
     ref_policy.requires_grad_(False)

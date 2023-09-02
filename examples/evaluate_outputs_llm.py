@@ -4,34 +4,25 @@ import argparse
 import transformers
 from dataclasses import dataclass, field
 
-from best_of_n import run_decode_augmented
 from alpaca_farm.utils import jload, jdump
-from alpaca_farm.auto_annotations.eval import alpaca_leaderboard_general
+from alpaca_farm.auto_annotations import alpaca_leaderboard_general
 
-# Set up argparse to take in the model name and checkpoint dir
-parser = argparse.ArgumentParser()
-parser.add_argument('--output_filepath1', type=str, default='./outputs1.json'
-                    , help='The path to the output json file to load')
-parser.add_argument('--output_filepath2', type=str, default='./outputs2.json'
-                    , help='The path to the output json file to load')
-parser.add_argument('--path_to_result', type=str, default='./results.json'
-                    , help='The path to the output json file')
-parser.add_argument('--exp_name', type=str, default='eval_outputs_llm'
-                    , help='The name of the experiment')
-args = parser.parse_args()
-
-# convert into a dataclass
+# arguments
 @dataclass
 class Arguments:
     output_filepath1: str = field(
-        default="./outputs1.json", metadata={"help": "Path to a checkpoint directory."}),
+        default="./outputs1.json", metadata={"help": "Path to outputs from a model (reference)."}),
     output_filepath2: str = field(
-        default="./outputs2.json", metadata={"help": "Path to a checkpoint directory."}),
+        default="./outputs2.json", metadata={"help": "Path to outputs from a model to compare (new)."}),
     path_to_result: str = field(
-        default="./results.json", metadata={"help": "The path to the output json file."}),
+        default="results.json", metadata={"help": "The path to the output json file."}),
     exp_name: str = field(default="eval_outputs_llm", metadata={"help": "The name of the experiment."}),
 
 if __name__ == "__main__":
+    # parse arguments
+    parser = transformers.HfArgumentParser(Arguments)
+    args, = parser.parse_args_into_dataclasses()
+
     if 'OPENAI_API_KEY' not in os.environ:
         decoding_kwargs = dict(
             openai_api_key = "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",

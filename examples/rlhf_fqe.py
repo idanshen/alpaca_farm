@@ -28,11 +28,11 @@ def main():
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
     parser = transformers.HfArgumentParser((DataArguments, TrainingArguments))
-    print(parser.dataclass_types[1].reward_model_checkpoint_dir)
     data_args, training_args = parser.parse_args_into_dataclasses()
 
     accelerator = accelerate_patch.MyAccelerator(
         gradient_accumulation_steps=training_args.gradient_accumulation_steps,
+        mixed_precision='bf16' if training_args.bfloat16 else 'fp16',
         log_with=["wandb"],
         even_batches=True,  # Make sure the batch size on each device is the same.
         split_batches=False,  # Don't break a batch into smaller chunks.

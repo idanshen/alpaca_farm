@@ -20,6 +20,7 @@ import types
 import warnings
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Union
+from optimum.bettertransformer import BetterTransformer
 
 import accelerate
 import torch
@@ -144,9 +145,9 @@ def make_generative_lm(
 
 def get_accelerate_model(
     model_name_or_path: str,
+    accelerator: accelerate.Accelerator,
     flash_attn: bool = False,
     four_bits: bool = True,
-    bfloat16: bool = True,
     gradient_checkpointing: bool = True,
     transformer_cache_dir: Optional[str] = None,
     use_lora: bool = True,
@@ -158,36 +159,41 @@ def get_accelerate_model(
     **kwargs,
 ):
 
-    assert not flash_attn, "currently flash attention is not supported (need to verify with 4bit training)"
-
     print(f'loading base model {model_name_or_path}...')
-    compute_dtype = (torch.bfloat16 if bfloat16 else torch.float16)
 
-    model = AutoModelForCausalLM.from_pretrained(
+    if four_bits:
+        model = AutoModelForCausalLM.from_pretrained(
         model_name_or_path,
-        load_in_4bit=four_bits,
         device_map='auto',
         quantization_config=BitsAndBytesConfig(
             load_in_4bit=four_bits,
-            bnb_4bit_compute_dtype=compute_dtype,
+            bnb_4bit_compute_dtype=torch.bfloat16 if accelerator.mixed_precision == 'bf16' else torch.float16,
             bnb_4bit_use_double_quant=four_bits,
             bnb_4bit_quant_type='nf4'  # by default, options are {'fp4', 'nf4'}
         ),
-        torch_dtype=torch.bfloat16 if bfloat16 else torch.float16,
         trust_remote_code=False,  # Set True to enable unpickling of arbitrary code in AutoModelForCausalLM#from_pretrained.
         cache_dir=transformer_cache_dir,
     )
+    else:
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name_or_path,
+            device_map='auto',
+            trust_remote_code=False,
+            # Set True to enable unpickling of arbitrary code in AutoModelForCausalLM#from_pretrained.
+            cache_dir=transformer_cache_dir,
+        )
+
+    if flash_attn:
+        print("Using Flash Attention. Notice that this feature requires per device batch size 1.")
+        model = BetterTransformer.transform(model)
 
     setattr(model, 'model_parallel', True)
     setattr(model, 'is_parallelizable', True)
-    modules = find_all_linear_names(four_bits, model)
 
-    model.config.torch_dtype = torch.bfloat16 if bfloat16 else torch.float16
-
-    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=gradient_checkpointing)
-    if gradient_checkpointing:
-        model.gradient_checkpointing_enable()
     if use_lora:
+        if is_trainable and four_bits:
+            model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=gradient_checkpointing)
+        modules = find_all_linear_names(four_bits, model)
         config = LoraConfig(
             r=lora_r,
             lora_alpha=lora_alpha,
@@ -199,109 +205,62 @@ def get_accelerate_model(
         if pretrained_lora_weights is not None:
             print("Loading adapters from checkpoint.")
             model = PeftModel.from_pretrained(model, pretrained_lora_weights, is_trainable=is_trainable)
-            # # For Debugging
-            # for name, p in model.named_parameters():
-            #     if 'lora' in name:
-            #         print(name, p.sum())
         else:
             print(f'adding LoRA modules...')
             model = get_peft_model(model, config)
-
-    if gradient_checkpointing:
-        if hasattr(model, "enable_input_require_grads"):
-            model.enable_input_require_grads()
-        else:
-            def make_inputs_require_grad(module, input, output):
-                output.requires_grad_(True)
-            model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
-
-    for name, module in model.named_modules():
-        if isinstance(module, LoraLayer):
-            if bfloat16:
-                module = module.to(torch.bfloat16)
-        if 'norm' in name:
-            module = module.to(torch.float32)
-        if 'lm_head' in name or 'embed_tokens' in name:
-            if hasattr(module, 'weight'):
-                if bfloat16 and module.weight.dtype == torch.float16:
-                    module = module.to(torch.bfloat16)
 
     return model
 
 # same as get_accelerate_model but for sequence classification models that aren't lora-based
 def get_accelerate_sc_model(
     model_name_or_path: str,
+    accelerator: accelerate.Accelerator,
     flash_attn: bool = False,
     four_bits: bool = True,
-    bfloat16: bool = True,
     gradient_checkpointing: bool = True,
     transformer_cache_dir: Optional[str] = None,
     is_trainable: bool = True,
     **kwargs,
 ):
-
-    assert not flash_attn, "currently flash attention is not supported (need to verify with 4bit training)"
-
     print(f'loading base model {model_name_or_path}...')
-    compute_dtype = (torch.bfloat16 if bfloat16 else torch.float16)
-    q_config = BitsAndBytesConfig(
-            load_in_4bit=four_bits,
-            bnb_4bit_compute_dtype=compute_dtype,
-            bnb_4bit_use_double_quant=four_bits,
-            bnb_4bit_quant_type='nf4'  # by default, options are {'fp4', 'nf4'}
-            )
 
-    # for older models, load_in_4bit=False b/c no linear layers
-    # if model_name_or_path == 'Tristan/gpt2_reward_summarization':
-    #     four_bits = False
-        # may have to set quantization config to None as well
-        # q_config = None
+    if four_bits:
+        model = AutoModelForSequenceClassification.from_pretrained(
+            model_name_or_path,
+            device_map='auto',
+            quantization_config=BitsAndBytesConfig(
+                load_in_4bit=four_bits,
+                bnb_4bit_compute_dtype=torch.bfloat16 if accelerator.mixed_precision == 'bf16' else torch.float16,
+                bnb_4bit_use_double_quant=four_bits,
+                bnb_4bit_quant_type='nf4'  # by default, options are {'fp4', 'nf4'}
+            ),
+            trust_remote_code=False,
+            cache_dir=transformer_cache_dir,
+        )
+    else:
+        model = AutoModelForSequenceClassification.from_pretrained(
+            model_name_or_path,
+            device_map='auto',
+            trust_remote_code=False,
+            # Set True to enable unpickling of arbitrary code in AutoModelForCausalLM#from_pretrained.
+            cache_dir=transformer_cache_dir,
+        )
 
-    model = AutoModelForSequenceClassification.from_pretrained(
-        model_name_or_path,
-        load_in_4bit=four_bits,
-        device_map='auto',
-        quantization_config=q_config,
-        torch_dtype=torch.bfloat16 if bfloat16 else torch.float16,
-        trust_remote_code=False,  # Set True to enable unpickling of arbitrary code in AutoModelForCausalLM#from_pretrained.
-        cache_dir=transformer_cache_dir,
-    )
+    if flash_attn:
+        print("Using Flash Attention. Notice that this feature requires per device batch size 1.")
+        model = BetterTransformer.transform(model)
 
     # turning gradients on/off depending on whether it is_trainable
     for p in model.parameters():
         p.requires_grad = is_trainable
 
-    print('This may throw some warnings if the model (older versions) do not contain linear layers')
-
     setattr(model, 'model_parallel', True)
     setattr(model, 'is_parallelizable', True)
 
-    model.config.torch_dtype = torch.bfloat16 if bfloat16 else torch.float16
+    if is_trainable:
+        model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=gradient_checkpointing)
 
-    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=gradient_checkpointing)
-    if gradient_checkpointing:
-        model.gradient_checkpointing_enable()
-
-    if gradient_checkpointing:
-        if hasattr(model, "enable_input_require_grads"):
-            model.enable_input_require_grads()
-        else:
-            def make_inputs_require_grad(module, input, output):
-                output.requires_grad_(True)
-            model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
-
-    for name, module in model.named_modules():
-        if isinstance(module, LoraLayer):
-            if bfloat16:
-                module = module.to(torch.bfloat16)
-        if 'norm' in name:
-            module = module.to(torch.float32)
-        if 'lm_head' in name or 'embed_tokens' in name:
-            if hasattr(module, 'weight'):
-                if bfloat16 and module.weight.dtype == torch.float16:
-                    module = module.to(torch.bfloat16)
     return model
-
 
 def find_all_linear_names(four_bit, model):
     cls = bnb.nn.Linear4bit if four_bit else torch.nn.Linear

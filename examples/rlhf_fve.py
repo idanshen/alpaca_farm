@@ -13,12 +13,12 @@
 # limitations under the License.
 
 import os
-from typing import List
+
 import transformers
 from accelerate import DistributedDataParallelKwargs
 
 from alpaca_farm import common, accelerate_patch, data_utils, logging
-from alpaca_farm.rl.ppo_trainer import PPOTrainer, make_models, make_tokenizer
+from alpaca_farm.rl.fve_trainer import FVETrainer, make_models, make_tokenizer
 from alpaca_farm.rl.ppo_utils import DataArguments, TrainingArguments
 
 logger = logging.get_logger(__name__)
@@ -49,13 +49,13 @@ def main():
     )
     logger.warning(accelerator.state, main_process_only=False)  # Each process log their own state.
 
-    tokenizer: List[transformers.PreTrainedTokenizer] = make_tokenizer(args=training_args)
+    tokenizer: transformers.PreTrainedTokenizer = make_tokenizer(args=training_args)
     model_module: dict = make_models(tokenizer=tokenizer, args=training_args, accelerator=accelerator)
     data_module: dict = data_utils.make_rl_data_module(
         tokenizer=tokenizer, data_args=data_args, training_args=training_args
     )
 
-    trainer = PPOTrainer(
+    trainer = FVETrainer(
         args=training_args,
         accelerator=accelerator,
         **data_module,

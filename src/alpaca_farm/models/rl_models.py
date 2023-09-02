@@ -22,6 +22,7 @@ WARNING:
 import abc
 from typing import Dict, Optional, Any
 
+import accelerate
 import torch
 import transformers
 from torch import Tensor, nn
@@ -94,12 +95,12 @@ class AutoregressivePolicy(Policy):
             use_cache=False,
         )
         outputs = self.base_model(**inputs, output_hidden_states=True)
-        original_logits = outputs.logits[:, -self.args.response_len - 1 : -1]
+        original_logits = outputs.logits[:, -responses.shape[1] - 1 : -1]
         logits = original_logits / temperature
-        labels = input_ids[:, -self.args.response_len :]
+        labels = input_ids[:, -responses.shape[1] :]
         logprobs = torch_ops.compute_logprobs(logits, labels, ignore_index=self.base_tokenizer.pad_token_id)
         entropies = -(logits.softmax(dim=-1) * logits.log_softmax(dim=-1)).sum(dim=-1)
-        last_hidden_state = outputs.hidden_states[-1][:, -self.args.response_len - 1 : -1]
+        last_hidden_state = outputs.hidden_states[-1][:, -responses.shape[1] - 1 : -1]
         return dict(
             original_logits=original_logits,
             logits=logits,
@@ -140,17 +141,20 @@ class AutoregressivePolicy(Policy):
 
 class Value(nn.Module, abc.ABC):
     def __init__(
-        self, args, base_model: transformers.PreTrainedModel, base_tokenizer: transformers.PreTrainedTokenizer
+        self, args, base_model: transformers.PreTrainedModel, base_tokenizer: transformers.PreTrainedTokenizer, accelerator: accelerate.Accelerator,
     ):
         super().__init__()
         self.args = args
         self.base_model = base_model
         self.base_tokenizer = base_tokenizer
+        self.accelerator = accelerator
         hidden_size = common.get_transformer_hidden_size(base_model)
+        hidden_layer_device = list(self.base_model.parameters())[-1].device
+
         value_head = torch.nn.Linear(hidden_size, 1)
         value_head.weight.data.zero_()
         value_head.bias.data.zero_()
-        self.value_head = value_head.to(list(base_model.parameters())[-1].device)
+        self.value_head = value_head.to(hidden_layer_device)
         self.model_parallel = True
         self.is_parallelizable = True
 
@@ -160,8 +164,11 @@ class Value(nn.Module, abc.ABC):
 
 
 class AutoregressiveValue(Value):
-    def forward(self, queries: Tensor, query_attn_masks: Tensor, responses: Tensor) -> Dict[str, Tensor]:
-        sequences = torch.cat([queries, responses], dim=1)
+    def forward(self, queries: Tensor, query_attn_masks: Optional[Tensor] = None, responses: Optional[Tensor] = None, only_last: bool = False) -> Dict[str, Tensor]:
+        if responses is not None:
+            sequences = torch.cat([queries, responses], dim=1)
+        else:
+            sequences = queries
         sequence_attn_masks = sequences.ne(self.base_tokenizer.pad_token_id)
 
         inputs = self.base_model.prepare_inputs_for_generation(
@@ -170,11 +177,16 @@ class AutoregressiveValue(Value):
             use_cache=False,
         )
         outputs = self.base_model.model(**inputs, output_hidden_states=True)
-        # value[t]: \hat{V}(sequences_{:t-1}); must align with `_estimate_advantage`.
-        last_hidden_state = outputs.hidden_states[-1][:, queries.size(1) - 1 : -1]
-        if last_hidden_state.dtype != torch.float32:
-            last_hidden_state = last_hidden_state.float()
-        values = self.value_head(last_hidden_state).squeeze(-1)
+        # get the hidden state of the last layer
+        if only_last:
+            last_hidden_state = outputs.hidden_states[-1][:, - 1:, :].squeeze(1)
+        else:
+            # value[t]: \hat{V}(sequences_{:t-1}); must align with `_estimate_advantage`.
+            last_hidden_state = outputs.hidden_states[-1][:, queries.size(1) - 1: -1, :]
+
+        with self.accelerator.autocast():
+            values = self.value_head(last_hidden_state).squeeze(-1)
+
         return dict(values=values)
 
 
@@ -207,20 +219,33 @@ class ActorCritic(nn.Module):
 
 class Qfunction(nn.Module, abc.ABC):
     def __init__(
-        self, args, base_model: transformers.PreTrainedModel, base_tokenizer: transformers.PreTrainedTokenizer
+        self, args, base_model: transformers.PreTrainedModel, base_tokenizer: transformers.PreTrainedTokenizer, accelerator: accelerate.Accelerator,
     ):
         super().__init__()
         self.args = args
         self.base_model = base_model
         self.base_tokenizer = base_tokenizer
+        self.accelerator = accelerator
+
         hidden_size = common.get_transformer_hidden_size(base_model)
-        q_head = torch.nn.Linear(hidden_size, len(base_tokenizer)*self.args.num_q_heads, dtype=torch.float16)
-        q_head.weight.data.zero_()
-        q_head.bias.data.zero_()
-        # TODO (seungwook): this hard-coding of device location may not be optimal
-        self.device = list(base_model.parameters())[-1].device
-        self.q_head = q_head.to(self.device)
-        
+        hidden_layer_device = list(self.base_model.parameters())[-1].device
+        self.head_device = hidden_layer_device
+
+        self.feature_size = hidden_size
+        if args.q_head_type == "linear":
+            q_head = torch.nn.Linear(self.feature_size, len(base_tokenizer)*self.args.num_q_heads)
+            q_head.weight.data.zero_()
+            q_head.bias.data.zero_()
+            self.q_head = q_head.to(self.head_device)
+        elif args.q_head_type == "projection":
+            assert args.num_q_heads == 1
+            self.token_features = self.base_model.get_input_embeddings().weight.type(torch.float16).to(self.head_device)
+            self.feature_size = self.token_features.shape[1]
+            w_h = torch.nn.Linear(in_features=hidden_size, out_features=self.feature_size)
+            w_h.weight.data.zero_()
+            w_h.bias.data.zero_()
+            self.q_head = w_h.to(self.head_device)
+
         self.model_parallel = True
         self.is_parallelizable = True
 
@@ -233,8 +258,8 @@ class Qfunction(nn.Module, abc.ABC):
         return self.q_head.load_state_dict(state_dict, strict=strict)
     
     def load_q_head(self, path: str):
-        self.q_head = torch.load(path, map_location=self.device)
-        self.q_head.forward = common.cast_with_native_amp(self.q_head.forward, mixed_precision='fp16')
+        self.q_head = torch.load(path, map_location=self.head_device)
+        self.q_head.forward = common.cast_with_native_amp(self.q_head.forward, mixed_precision=self.accelerator.mixed_precision)
 
 
 class AutoregressiveQfunction(Qfunction):
@@ -243,6 +268,7 @@ class AutoregressiveQfunction(Qfunction):
             sequences = torch.cat([queries, responses], dim=1)
         else:
             sequences = queries
+
         sequence_attn_masks = sequences.ne(self.base_tokenizer.pad_token_id)
 
         inputs = self.base_model.prepare_inputs_for_generation(
@@ -252,15 +278,22 @@ class AutoregressiveQfunction(Qfunction):
         )
         outputs = self.base_model.model(**inputs, output_hidden_states=True)
 
+        # get the hidden state of the last layer
         if only_last:
-            last_hidden_state = outputs.hidden_states[-1][:, - 1 :,:].squeeze()
+            last_hidden_state = outputs.hidden_states[-1][:, - 1 :,:].squeeze(1)
         else:
             last_hidden_state = outputs.hidden_states[-1][:, queries.size(1) - 1 : -1,:]
-        if last_hidden_state.dtype != torch.float16:
-            last_hidden_state = last_hidden_state.type(torch.float16)
-        qvalues = self.q_head(last_hidden_state).squeeze(-1)
-        if self.args.num_q_heads > 1:
-            qvalues = qvalues.view(-1, self.args.num_q_heads, len(self.base_tokenizer))
+
+        # project the hidden state to the q values
+        with self.accelerator.autocast():
+            if self.args.q_head_type == "linear":
+                qvalues = self.q_head(last_hidden_state).squeeze(-1)
+                if self.args.num_q_heads > 1:
+                    qvalues = qvalues.view(-1, self.args.num_q_heads, len(self.base_tokenizer))
+            elif self.args.q_head_type == "projection":
+                h_features = self.q_head(last_hidden_state)  # from B x L x H to B x L x H'
+                t_features = self.token_features  # T x H'
+                qvalues = h_features @ t_features.T  # B x L x T
         return dict(qvalues=qvalues)
 
 
@@ -277,18 +310,20 @@ def make_value_with_base_model(
     args,
     base_model: transformers.PreTrainedModel,
     base_tokenizer: transformers.PreTrainedTokenizer,
+    accelerator: accelerate.Accelerator,
 ) -> Value:
     if base_model.config.is_encoder_decoder:
         raise NotImplementedError
     else:
-        return AutoregressiveValue(args, base_model, base_tokenizer)
+        return AutoregressiveValue(args, base_model, base_tokenizer, accelerator)
 
 def make_qfunction_with_base_model(
     args,
     base_model: transformers.PreTrainedModel,
     base_tokenizer: transformers.PreTrainedTokenizer,
+    accelerator: accelerate.Accelerator,
 ) -> Qfunction:
     if base_model.config.is_encoder_decoder:
         raise NotImplementedError
     else:
-        return AutoregressiveQfunction(args, base_model, base_tokenizer)
+        return AutoregressiveQfunction(args, base_model, base_tokenizer, accelerator)

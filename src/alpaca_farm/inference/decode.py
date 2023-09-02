@@ -18,6 +18,7 @@ import math
 import sys
 from typing import Callable, List, Optional, Sequence, Tuple, Union
 import os
+from argparse import Namespace
 
 import einops
 import torch
@@ -46,7 +47,7 @@ class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
         # TODO (seungwook): may need to pass in mask as well?
         q_outputs = self.q_model(input_ids, only_last=True)
-        return scores + self.beta * q_outputs['logits'].squeeze()
+        return scores + self.beta * q_outputs['qvalues'].squeeze()
     
     def _apply(self, fn):
         super()._apply(fn)
@@ -322,6 +323,7 @@ def decode_prompts_with_huggingface(
     load_in_4_bits: bool = False,
     checkpoint_dir: Optional[str] = None,
     q_checkpoint_dir: Optional[str] = None,
+    flash_attn: bool = False,
     model_and_tokenizer: Optional[Tuple] = None,
     force_multisample_format: bool = False,
     seed: Optional[int] = None,
@@ -345,6 +347,7 @@ def decode_prompts_with_huggingface(
         max_instances: The maximum number of prompts to decode.
         pad_to_length: The token length to pad the prompts. This is necessary for and only used in distributed decoding.
         tf32: Whether to use tensorfloat32 for matrix multiplication.
+        flash_attn: Whether to use flash attention or not
         force_multisample_format: Whether to force the outputs to be in the multisample format.
         seed: The random seed. If None, this function is generally not deterministic, unless the seed is fixed outside.
         communication_num_chunks: Number of chunks to create for final communication.
@@ -366,6 +369,11 @@ def decode_prompts_with_huggingface(
             load_in_4_bits=load_in_4_bits,
             checkpoint_dir=checkpoint_dir,
         )
+        
+        if flash_attn:
+            print("Using Flash Attention. Notice that this feature requires per device batch size 1.")
+            from optimum.bettertransformer import BetterTransformer
+            model = BetterTransformer.transform(model)
     
     # TODO (seungwook): assumes that the policy and q model base are the same (may need to change)
     qlogits_processor = None
@@ -377,12 +385,18 @@ def decode_prompts_with_huggingface(
             load_in_4_bits=load_in_4_bits,
             checkpoint_dir=q_checkpoint_dir,
         )
-        # TODO (seungwook): assumes that num_q_heads=1, but may need to change that
-        args = Namespace(num_q_heads=1)
-        q_model = make_qfunction_with_base_model(args, q_model, q_tokenizer)
+        q_model = make_qfunction_with_base_model(Namespace(**decoding_kwargs), q_model, q_tokenizer)
         # q_model.load_state_dict(torch.load(os.path.join(q_checkpoint_dir, 'adapter_model/q_head.pt'), map_location=q_model.device))
+        # TODO (seungwook): depending on the type of q head (weights or whole pickled model), load differently
         q_model.load_q_head(os.path.join(q_checkpoint_dir, 'adapter_model/q_head.pt'))
+        
+        # delete num_q_heads and q_head_type from decoding_kwargs
+        decoding_kwargs.pop('num_q_heads', None)
+        decoding_kwargs.pop('q_head_type', None)
 
+        if flash_attn:
+            q_model = BetterTransformer.transform(q_model)
+    
         qlogits_processor = QLogitsProcessor(q_model=q_model, beta=beta)
 
     return decode_prompts_with_huggingface_given_model(
@@ -401,7 +415,3 @@ def decode_prompts_with_huggingface(
         logits_processor=qlogits_processor,
         **decoding_kwargs,
     )
-
-class Namespace:
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
