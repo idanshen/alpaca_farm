@@ -111,25 +111,26 @@ class RewardNoLoraModel(transformers.PreTrainedModel):
         self.is_parallelizable = True
 
         # function to apply to the output of the model
-        self.function_to_apply = None
-        if self.model.config.problem_type == "multi_label_classification" or self.model.config.num_labels == 1:
-            self.function_to_apply = torch.sigmoid
-        elif self.model.config.problem_type == "single_label_classification" or self.model.config.num_labels > 1:
-            self.function_to_apply = partial(torch.softmax, dim=-1)
-        elif hasattr(self.model.config, "function_to_apply") and self.function_to_apply is None:
-            self.function_to_apply = self.model.config.function_to_apply # TODO: not implemented yet
-        else:
-            self.function_to_apply = lambda x: x
+        # self.function_to_apply = None
+        # if self.model.config.problem_type == "multi_label_classification" or self.model.config.num_labels == 1:
+        #     self.function_to_apply = torch.sigmoid
+        # elif self.model.config.problem_type == "single_label_classification" or self.model.config.num_labels > 1:
+        #     self.function_to_apply = partial(torch.softmax, dim=-1)
+        # elif hasattr(self.model.config, "function_to_apply") and self.function_to_apply is None:
+        #     self.function_to_apply = self.model.config.function_to_apply # TODO: not implemented yet
+        # else:
+
+        # use raw outputs of the models
+        # self.function_to_apply = lambda x: x
         
     def forward(self, input_ids, attention_mask=None, return_dict=True, **kwargs):
         # We only compute the rewards and don't compute the logistic regression loss in this function so that it's
         # easier to use for later stages of reranking / RL training.
         with self.accelerator.autocast():
-            outputs = self.model(input_ids, attention_mask=attention_mask, return_dict=True, **kwargs)
-            rewards = self.function_to_apply(outputs.logits).squeeze(-1)
+            rewards = self.model(input_ids, attention_mask=attention_mask, return_dict=True, **kwargs).logits.squeeze(-1)
+            # rewards = self.function_to_apply(outputs.logits).squeeze(-1)
         
         # special case of bart summarization reward model, need to take the difference btw faithful (label 1) and hallucination (label 0)
-        # TODO (seungwook): may need to fix later for other reward models
         if rewards.shape[-1] > 1 and rewards.ndim == 2:
             rewards = rewards[:, 1] - rewards[:, 0]
 
