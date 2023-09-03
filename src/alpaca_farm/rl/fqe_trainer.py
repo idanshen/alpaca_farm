@@ -165,13 +165,22 @@ class FQETrainer(rl_trainer.RLTrainer):
             text_sequences = [q + r for q, r in utils.zip_(text_queries, text_responses)]
             # TODO(lxuechen): This response retokenization has issues with OPT, since the tokenizer always prepend
             #  <bos_token>. But the issue is local to post_reward, which isn't an issue if we don't penalize.
-            sequences, responses = tuple(
-                self.reward_tokenizer(text, return_tensors="pt", padding=True, truncation=True)
-                for text in (text_sequences, text_responses)
-            )
-            sequences, responses = common.prepare_inputs((sequences, responses), device=self.accelerator.device)
+            responses = self.reward_tokenizer(text_responses, return_tensors="pt", padding=True, truncation=True)
+            responses = common.prepare_inputs(responses, device=self.accelerator.device)
 
-            reward_outputs = self.reward_model(**sequences)
+            # tokenizing for reward model with bs==1 and then collating
+            reward_outputs_list = []
+            for ts in text_sequences:
+                s = self.reward_tokenizer(ts, return_tensors="pt", truncation=True)
+                s = common.prepare_inputs(s, device=self.accelerator.device)
+                r = self.reward_model(**s)
+                reward_outputs_list.append(r.rewards)
+            
+            reward_outputs = torch.cat(reward_outputs_list, dim=0)
+            reward_outputs = {'rewards': reward_outputs}
+
+            del text_responses, text_queries # prevent mistakes
+
             reward_outputs = self.post_reward(reward_outputs, responses.input_ids)
             rollouts_batch.update(reward_outputs)
 
