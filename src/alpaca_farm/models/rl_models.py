@@ -252,14 +252,11 @@ class Qfunction(nn.Module, abc.ABC):
     @abc.abstractmethod
     def forward(self, queries: Tensor, query_attn_masks: Tensor, responses: Tensor) -> Dict[str, Tensor]:
         raise NotImplementedError
-
-    # load weights only for q_head
-    def load_state_dict(self, state_dict: Any, strict: bool=True):
-        return self.q_head.load_state_dict(state_dict, strict=strict)
     
-    def load_q_head(self, path: str):
+    # load q head from checkpoint
+    def load_q_head(self, path: str, strict: bool=True):
         q_head_ckpt = torch.load(path, map_location=self.head_device)
-        self.q_head.load_state_dict(q_head_ckpt['state_dict'])
+        self.q_head.load_state_dict(q_head_ckpt['state_dict'], strict=strict)
         self.q_head.forward = common.cast_with_native_amp(self.q_head.forward, mixed_precision=self.accelerator.mixed_precision)
 
 
