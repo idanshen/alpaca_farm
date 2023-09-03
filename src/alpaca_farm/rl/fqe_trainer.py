@@ -35,6 +35,7 @@ from ..models import reward_model as reward_model_module
 from ..models import rl_models
 from ..types import AnyPath, AnyPathOrNone, LRScheduler, Tensor
 from . import rl_trainer
+from .trainer_utils import _make_padded_tokenizer
 
 logger = logging.get_logger(__name__)
 
@@ -442,35 +443,16 @@ class FQETrainer(rl_trainer.RLTrainer):
                     logger.fatal(f"Failed to give read-write access to {output_dir}: {e}")
 
 
-def _make_left_padded_tokenizer(
-    model_name_or_path: AnyPath,
-    cache_dir: AnyPathOrNone = constants.DEFAULT_CACHE_DIR,
-    **kwargs,
-) -> transformers.PreTrainedTokenizer:
-    print(f"Loading tokenizer from {model_name_or_path}")
-    tokenizer = transformers.AutoTokenizer.from_pretrained(
-        model_name_or_path,
-        cache_dir=cache_dir,
-        padding_side="left",
-        **kwargs,
-    )
-    tokenizer.padding = "longest"
-    if model_name_or_path == "huggyllama/llama-7b":
-        tokenizer.pad_token_id = 0
-    else:
-        tokenizer.pad_token_id = tokenizer.eos_token_id
-    return tokenizer
-
-
 def make_tokenizer(args):
     # policy_tokenizer left pads, since the policy requires batch decoding.
-    policy_tokenizer = _make_left_padded_tokenizer(
-        args.policy_model_name_or_path, cache_dir=args.cache_dir, use_fast=args.use_fast_tokenizer
+    policy_tokenizer = _make_padded_tokenizer(
+        args.policy_model_name_or_path, cache_dir=args.cache_dir, use_fast=args.use_fast_tokenizer, padding_side='left',
     )
     # reward_tokenizer left pads, since we need the embedding of the right most non-pad token.
-    reward_tokenizer = _make_left_padded_tokenizer(
-        args.reward_model_name_or_path, cache_dir=args.cache_dir, use_fast=args.use_fast_tokenizer
+    reward_tokenizer = _make_padded_tokenizer(
+        args.reward_model_name_or_path, cache_dir=args.cache_dir, use_fast=args.use_fast_tokenizer # use default padding side of rm
     )
+
     if policy_tokenizer.get_vocab() != reward_tokenizer.get_vocab():
         logger.info('Policy and reward tokenizers are different.')
         return [policy_tokenizer, reward_tokenizer]
