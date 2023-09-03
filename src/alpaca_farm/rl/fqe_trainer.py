@@ -418,7 +418,7 @@ class FQETrainer(rl_trainer.RLTrainer):
             unwrapped = model.base_model
             peft_model_path = os.path.join(output_dir, "adapter_model")
             save_peft_model(unwrapped, peft_model_path)
-            torch.save(model.q_head, os.path.join(output_dir, "q_head.pt")) # TODO (seungwook): should probs save its weights not the whole model
+            torch.save({'state_dict': model.q_head.state_dict()}, os.path.join(output_dir, "q_head.pt"))
 
             assert isinstance(
                 unwrapped, (transformers.OPTForCausalLM, transformers.LlamaForCausalLM, peft.PeftModelForCausalLM)
