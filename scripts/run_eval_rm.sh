@@ -1,7 +1,7 @@
 #!/bin/bash
 
 CUDA_VISIBLE_DEVICES=1 python examples/evaluate_outputs_rm.py \
-  --reward_model_name_or_path Tristan/gpt2_reward_summarization \
+  --reward_model_name_or_path CogComp/bart-faithful-summary-detector \
   --output_filepath $1 \
   --path_to_result $2 \
   --four_bits True \
