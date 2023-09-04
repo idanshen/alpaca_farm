@@ -16,6 +16,7 @@ import os
 
 import transformers
 from accelerate import DistributedDataParallelKwargs
+from accelerate.utils import set_seed
 
 from alpaca_farm import common, accelerate_patch, data_utils, logging
 from alpaca_farm.rl.fve_trainer import FVETrainer, make_models, make_tokenizer
@@ -28,8 +29,10 @@ def main():
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
     parser = transformers.HfArgumentParser((DataArguments, TrainingArguments))
-    print(parser.dataclass_types[1].reward_model_checkpoint_dir)
     data_args, training_args = parser.parse_args_into_dataclasses()
+
+    # set seed for determniistic training
+    set_seed(training_args.seed)
 
     accelerator = accelerate_patch.MyAccelerator(
         gradient_accumulation_steps=training_args.gradient_accumulation_steps,
