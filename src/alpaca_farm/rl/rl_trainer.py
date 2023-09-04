@@ -135,6 +135,7 @@ class RLTrainer(object):
             "`optimizer` must be pushed through `accelerator.prepare`. "
             "Otherwise the `accelerator.accumulate` context manager won't correctly disable `zero_grad` or `step`."
         )
+        self.policy.train()
         rollouts_dataloader = self.get_rollouts_dataloader(rollouts=rollouts)
         stats_list = []
         for epoch_idx in range(self.args.noptepochs):
