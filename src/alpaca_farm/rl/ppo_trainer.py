@@ -170,7 +170,6 @@ class PPOTrainer(rl_trainer.RLTrainer):
             # 
             # PT, since the tokenizer always prepend
             #  <bos_token>. But the issue is local to post_reward, which isn't an issue if we don't penalize.
-
             responses = self.reward_tokenizer(text_responses, return_tensors="pt", padding=True, truncation=True)
             responses = common.prepare_inputs(responses, device=self.accelerator.device)
 

@@ -135,6 +135,7 @@ class TrainingArguments(transformers.TrainingArguments):
     static_val_dataset_path: str = field(
         default="/data/pulkitag/models/idanshen/alpaca_farm/sft/test_5/responses/validation_dataset.json",
         metadata={"help": "Path to static validation dataset."})
+    seed: int = field(default=21, metadata={"help": "Random seed."})
 
     def __post_init__(self):
         # Super class' __post_init__ is very complicated; don't do super for now in case mess something up.
