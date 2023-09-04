@@ -55,39 +55,39 @@ class Arguments:
     output_file: str = field(default="/data/pulkitag/models/idanshen/alpaca_farm/sft/test_5/validation_dataset.json")
 
 
-def make_generative_policy(args, is_trainable=False):
+def make_generative_policy(args, accelerator, is_trainable=False):
     base_model = common.get_accelerate_model(
         model_name_or_path=args.policy_model_name_or_path,
         pretrained_lora_weights=args.policy_model_checkpoint_dir,
         four_bits=args.four_bits,
-        bfloat16=args.bfloat16,
         use_lora=args.use_lora,
         flash_attn=args.flash_attn,
-        is_trainable=is_trainable,)
+        is_trainable=is_trainable,
+        accelerator=accelerator,)
     return base_model
 
 
-def make_reward_model(args, is_trainable=False):
+def make_reward_model(args, accelerator, is_trainable=False):
     reward_model_config = reward_model_module.RewardConfig(backbone_model_name_or_path=args.reward_model_name_or_path)
     # for pretrained reward models that aren't lora-based
     if reward_model_config.backbone_model_name_or_path != 'huggyllama/llama-7b':
         base_reward_model = reward_model_module.RewardNoLoraModel(
             transformer_cache_dir=args.transformer_cache_dir,
-            four_bits=args.four_bits,
-            bfloat16=args.bfloat16,
+            four_bits=False,
             flash_attn=args.flash_attn,
             is_trainable=is_trainable,
-            config=reward_model_config, )
+            config=reward_model_config,
+            accelerator=accelerator)
     else:
         base_reward_model = reward_model_module.RewardModel(
             transformer_cache_dir=args.transformer_cache_dir,
             four_bits=args.four_bits,
-            bfloat16=args.bfloat16,
             use_lora=args.use_lora,
             flash_attn=args.flash_attn,
             pretrained_lora_weights=args.reward_model_checkpoint_dir,
             is_trainable=is_trainable,
-            config=reward_model_config, )
+            config=reward_model_config,
+            accelerator=accelerator)
     return base_reward_model
 
 
@@ -124,6 +124,12 @@ def generate_data(args, policy, policy_tokenizer, reward_model, reward_tokenizer
             common.prepare_inputs(batch, device=0),
             keys=("queries", "query_attn_masks"),
         )
+        batch_size = queries.size(0)
+        if batch_size == 1:
+            # remove all padding tokens
+            query_attn_masks = query_attn_masks[queries != policy_tokenizer.pad_token_id].view(1, -1)
+            queries = queries[queries != policy_tokenizer.pad_token_id].view(1, -1)
+
         n = np.random.randint(1, 100)
         short_response = policy.generate(
             inputs=queries,
@@ -140,8 +146,8 @@ def generate_data(args, policy, policy_tokenizer, reward_model, reward_tokenizer
         encoded_short_response = policy_tokenizer(text_short_response, return_tensors="pt", padding=True, truncation=True)
 
         full_responses = policy.generate(
-            inputs=encoded_short_response['input_ids'].repeat(args.num_completions,1).to(0),
-            attention_mask=encoded_short_response['attention_mask'].repeat(args.num_completions,1).to(0),
+            inputs=encoded_short_response['input_ids'].repeat(args.num_completions,1).to(accelerator.device),
+            attention_mask=encoded_short_response['attention_mask'].repeat(args.num_completions,1).to(accelerator.device),
             do_sample=True,
             max_new_tokens=300-n,
             pad_token_id=policy_tokenizer.pad_token_id,
@@ -153,21 +159,37 @@ def generate_data(args, policy, policy_tokenizer, reward_model, reward_tokenizer
         text_full_responses = policy_tokenizer.batch_decode(full_responses, skip_special_tokens=True, clean_up_tokenization_spaces=True)
         encoded_full_responses = reward_tokenizer(text_full_responses, return_tensors="pt", padding=True, truncation=True)
         encoded_full_responses, = common.prepare_inputs((encoded_full_responses, ), device=0)
-
-        reward_outputs = reward_model(**encoded_full_responses)
-        rewards = reward_outputs['rewards'].cpu().detach().numpy()
+        rewards = []
+        for i in range(args.num_completions):
+            mask = encoded_full_responses['attention_mask'][i, :]
+            tokens = encoded_full_responses['input_ids'][i, :]
+            mask = mask[tokens != reward_tokenizer.pad_token_id]
+            tokens = tokens[tokens != reward_tokenizer.pad_token_id]
+            reward_outputs = reward_model(input_ids=tokens.view(1, -1), attention_mask=mask.view(1, -1))
+            reward = reward_outputs['rewards'].cpu().detach().numpy()
+            rewards.append(reward)
         generated_data.append({"text": text_short_response[0], "reward": np.mean(rewards)})
 
-        return generated_data
+    return generated_data
 
 
 if __name__ == "__main__":
     parser = transformers.HfArgumentParser(Arguments)
     args, = parser.parse_args_into_dataclasses()
+
+    accelerator = accelerate_patch.MyAccelerator(
+        mixed_precision='bf16' if args.bfloat16 else 'fp16',
+        log_with=[],
+    )
+
     policy_tokenizer: transformers.PreTrainedTokenizer = make_left_padded_tokenizer(model_name_or_path=args.policy_model_name_or_path)
     reward_tokenizer: transformers.PreTrainedTokenizer = make_left_padded_tokenizer(model_name_or_path=args.reward_model_name_or_path)
-    policy = make_generative_policy(args=args)
-    reward_model = make_reward_model(args=args)
+    policy = make_generative_policy(args=args, accelerator=accelerator)
+    accelerator.prepare(policy)
+    policy.eval()
+    reward_model = make_reward_model(args=args, accelerator=accelerator)
+    accelerator.prepare(reward_model)
+    reward_model.eval()
     data_module: dict = data_utils.make_rl_data_module(
         tokenizer=[policy_tokenizer, reward_tokenizer], data_args=args, training_args=args
     )

@@ -16,6 +16,7 @@ import os
 
 import transformers
 from accelerate import DistributedDataParallelKwargs
+from accelerate.utils import set_seed
 
 from alpaca_farm import common, accelerate_patch, data_utils, logging
 from alpaca_farm.rl.fqe_trainer import FQETrainer, make_models, make_tokenizer
@@ -29,6 +30,9 @@ def main():
 
     parser = transformers.HfArgumentParser((DataArguments, TrainingArguments))
     data_args, training_args = parser.parse_args_into_dataclasses()
+
+    # set seed for determniistic training
+    set_seed(training_args.seed)
 
     accelerator = accelerate_patch.MyAccelerator(
         gradient_accumulation_steps=training_args.gradient_accumulation_steps,
