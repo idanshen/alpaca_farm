@@ -179,9 +179,7 @@ class PPOTrainer(rl_trainer.RLTrainer):
                 s = self.reward_tokenizer(ts, return_tensors="pt", truncation=True)
                 s = common.prepare_inputs(s, device=self.accelerator.device)
                 r = self.reward_model(**s)
-                reward_outputs.append(r)
-                reward_outputs = self.reward_model(**s)
-                reward_outputs_list.append(reward_outputs.rewards)
+                reward_outputs_list.append(r.rewards)
             
             reward_outputs = torch.cat(reward_outputs_list, dim=0)
             reward_outputs = {'rewards': reward_outputs}
