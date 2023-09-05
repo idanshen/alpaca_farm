@@ -35,9 +35,15 @@ if __name__ == "__main__":
     if os.path.isfile(args.output_filepath1) and os.path.isfile(args.output_filepath2):
         list_dict_data1 = jload(args.output_filepath1)
         list_dict_data2 = jload(args.output_filepath2)
+        
+        assert len(list_dict_data1) == len(list_dict_data2)
     else:
         raise Exception('Output file(s) not found!')
-        
+    
+    # post-process: only use first sentence of generated summary for evaluation
+    for x1, x2 in zip(list_dict_data1, list_dict_data2):
+        x1['output'] = x1['output'].split('.')[0] + '.'
+        x2['output'] = x2['output'].split('.')[0] + '.'
 
     print("Finished loading outputs, start evaluating") # TODO (seungwook): fix config files
     alpaca_leaderboard_general([list_dict_data1, list_dict_data2], is_print_metrics=True, annotators_config = "annotator_pool_v0/configs.yaml", name=args.exp_name)# , **decoding_kwargs)
