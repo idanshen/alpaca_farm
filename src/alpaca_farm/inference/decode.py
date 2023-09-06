@@ -114,6 +114,7 @@ def load_model_and_tokenizer_for_inference(
         model = common.get_accelerate_model(model_name_or_path, pretrained_lora_weights=checkpoint_dir, flash_attn=False, is_trainable=False, **model_kwargs).eval()
         common.let_model_save_mem_when_zero_grad(model)
     else:
+        assert checkpoint_dir is None, "checkpoint_dir (path to lora weights) is defined, but not loading them bc load_in_4_bits is False"
         model = model_cls.from_pretrained(model_name_or_path, **model_kwargs).eval()
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_name_or_path, **tokenizer_kwargs)
