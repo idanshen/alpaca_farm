@@ -12,7 +12,7 @@ from best_of_n import run_decode_augmented
 from alpaca_farm import data_utils, common
 from alpaca_farm.utils import jload, jdump
 from alpaca_farm.models import reward_model as reward_model_module
-from alpaca_farm.rl.ppo_trainer import _make_left_padded_tokenizer
+from alpaca_farm.rl.trainer_utils import _make_padded_tokenizer
 
 """
 Arguments for the script
@@ -124,9 +124,7 @@ if __name__ == "__main__":
     
     print('Loaded data, now evaluating reward scores...')
     # set up tokenizer and set padding and truncation side to the right
-    reward_tokenizer: transformers.PreTrainedTokenizer = _make_left_padded_tokenizer(model_name_or_path=args.reward_model_name_or_path)
-    reward_tokenizer.padding_side = "right"
-    reward_tokenizer.truncation_side = "right"
+    reward_tokenizer: transformers.PreTrainedTokenizer = _make_padded_tokenizer(model_name_or_path=args.reward_model_name_or_path)
     
     reward_model = make_reward_model(args=args)
 
