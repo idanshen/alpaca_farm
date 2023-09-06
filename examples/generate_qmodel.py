@@ -3,9 +3,10 @@ import os
 from dataclasses import dataclass, field
 
 import transformers
+
 from best_of_n import run_decode_augmented, run_decode
-from alpaca_farm.utils import jload, jdump
-from alpaca_farm.auto_annotations import PairwiseAutoAnnotator, alpaca_leaderboard
+from alpaca_farm.utils import jdump
+from alpaca_farm import accelerate_patch
 
 # convert the argparse into a dataclass
 @dataclass
@@ -60,7 +61,12 @@ if __name__ == "__main__":
         mixed_precision = 'bf16'
     else:
         mixed_precision = None
-        
+
+    accelerator = accelerate_patch.MyAccelerator(
+        mixed_precision=mixed_precision,
+        log_with=[],
+    )
+
     if os.path.isfile(args.path_to_result):
         print('Output file already exists, skipping generating data')
     else:
@@ -77,7 +83,8 @@ if __name__ == "__main__":
                                         per_device_batch_size=args.per_device_batch_size, 
                                         load_in_4_bits=args.load_in_4_bits,
                                         mixed_precision=mixed_precision,
-                                        flash_attn=args.flash_attn)
+                                        flash_attn=args.flash_attn,
+                                        accelerator=accelerator)
         else: 
             list_dict_data = run_decode_augmented(decoder_name_or_path=args.decoder_name_or_path,
                                         checkpoint_dir=args.decoder_checkpoint_dir,

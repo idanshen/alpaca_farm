@@ -161,13 +161,21 @@ def get_accelerate_model(
 
     print(f'loading base model {model_name_or_path}...')
 
+    compute_dtype = torch.float32
+    if accelerator.mixed_precision == 'bf16':
+        compute_dtype = torch.bfloat16
+    elif accelerator.mixed_precision == 'fp16':
+        compute_dtype = torch.float16
+    else:
+        assert accelerator.mixed_precision == 'fp32'
+    
     if four_bits:
         model = AutoModelForCausalLM.from_pretrained(
         model_name_or_path,
         device_map='auto',
         quantization_config=BitsAndBytesConfig(
             load_in_4bit=four_bits,
-            bnb_4bit_compute_dtype=torch.bfloat16 if accelerator.mixed_precision == 'bf16' else torch.float16,
+            bnb_4bit_compute_dtype=compute_dtype,
             bnb_4bit_use_double_quant=four_bits,
             bnb_4bit_quant_type='nf4'  # by default, options are {'fp4', 'nf4'}
         ),
@@ -208,6 +216,9 @@ def get_accelerate_model(
         else:
             print(f'adding LoRA modules...')
             model = get_peft_model(model, config)
+    
+    # wrap with accelerator for mixed precision
+    accelerator.prepare(model)
 
     return model
 
@@ -259,6 +270,9 @@ def get_accelerate_sc_model(
 
     if is_trainable:
         model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=gradient_checkpointing)
+    
+    # wrap with accelerator for mixed precision
+    accelerator.prepare(model)
 
     return model
 

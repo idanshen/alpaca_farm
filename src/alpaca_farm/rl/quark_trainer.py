@@ -41,6 +41,7 @@ from transformers.modeling_utils import unwrap_model
 from .. import accelerate_patch, common, constants, data_preprocessor, data_utils, logging, utils
 from ..models import reward_model as reward_model_module
 from ..models import rl_models
+from .trainer_utils import _make_padded_tokenizer
 from ..types import AnyPath, AnyPathOrNone, LRScheduler, Optional, Tensor
 from . import kl_controller, rl_trainer
 
@@ -385,29 +386,13 @@ class QuarkTrainer(rl_trainer.RLTrainer):
             torch.save(self.args, os.path.join(output_dir, constants.TRAINING_ARGS_NAME))
 
 
-def _make_left_padded_tokenizer(
-    model_name_or_path: AnyPath,
-    cache_dir: AnyPathOrNone = constants.DEFAULT_CACHE_DIR,
-    **kwargs,
-) -> transformers.PreTrainedTokenizer:
-    tokenizer = transformers.AutoTokenizer.from_pretrained(
-        model_name_or_path,
-        cache_dir=cache_dir,
-        padding_side="left",
-        **kwargs,
-    )
-    if tokenizer.pad_token is None:
-        tokenizer.add_special_tokens(dict(pad_token=constants.DEFAULT_PAD_TOKEN))
-    return tokenizer
-
-
 def make_tokenizer(args):
     # policy_tokenizer left pads, since the policy requires batch decoding.
-    policy_tokenizer = _make_left_padded_tokenizer(
-        args.policy_model_name_or_path, cache_dir=args.cache_dir, use_fast=args.use_fast_tokenizer
+    policy_tokenizer = _make_padded_tokenizer(
+        args.policy_model_name_or_path, cache_dir=args.cache_dir, use_fast=args.use_fast_tokenizer, padding_side="left",
     )
     # reward_tokenizer left pads, since we need the embedding of the right most non-pad token.
-    reward_tokenizer = _make_left_padded_tokenizer(
+    reward_tokenizer = _make_padded_tokenizer(
         args.reward_model_name_or_path, cache_dir=args.cache_dir, use_fast=args.use_fast_tokenizer
     )
     if policy_tokenizer.get_vocab() != reward_tokenizer.get_vocab():
@@ -457,7 +442,6 @@ def make_models(
 
     reward_model = make_reward_model()
     reward_model.requires_grad_(False)
-    reward_model = accelerator.prepare(reward_model)
 
     # TODO: This is a hack to get FSDP running. Remove in the future when this is fixed.
     if accelerator.distributed_type == accelerate.DistributedType.FSDP:

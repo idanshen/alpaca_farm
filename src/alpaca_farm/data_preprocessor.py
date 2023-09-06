@@ -877,7 +877,7 @@ class AssistantQueryDataset(Dataset):
         if df_postprocessor is not None:
             df = df_postprocessor(df)
 
-        instruction = 'Generate a movie review.'
+        instruction = 'Generate a movie review.' # TODO (seungwook): actually none
 
         filter_fn = lambda x: len(x['text']) > 200
         input_preprocess_fn = lambda x: x['text']

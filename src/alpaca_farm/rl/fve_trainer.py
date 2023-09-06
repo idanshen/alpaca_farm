@@ -33,6 +33,7 @@ from .. import accelerate_patch, common, constants, data_preprocessor, logging, 
 from ..common import save_peft_model
 from ..models import reward_model as reward_model_module
 from ..models import rl_models
+from ..models.make_models import make_generative_policy, make_reward_model
 from ..types import AnyPath, AnyPathOrNone, LRScheduler, Tensor
 from . import rl_trainer
 from .trainer_utils import _make_padded_tokenizer
@@ -439,49 +440,6 @@ def make_models(
     accelerator: accelerate.Accelerator,
 ) -> dict:
     policy_tokenizer, reward_tokenizer = tokenizer
-    def make_generative_policy(is_trainable):
-        base_model = common.get_accelerate_model(
-            model_name_or_path=args.policy_model_name_or_path,
-            pretrained_lora_weights=args.policy_model_checkpoint_dir,
-            transformer_cache_dir=args.transformer_cache_dir,
-            four_bits=args.four_bits,
-            use_lora=args.use_lora,
-            lora_r=args.lora_r,
-            lora_alpha=args.lora_alpha,
-            lora_dropout=args.lora_dropout,
-            gradient_checkpointing=args.gradient_checkpointing,
-            flash_attn=args.flash_attn,
-            is_trainable=is_trainable,
-            accelerator=accelerator,)
-        return base_model
-
-    def make_reward_model(is_trainable):
-        reward_model_config = reward_model_module.RewardConfig(backbone_model_name_or_path=args.reward_model_name_or_path)
-        # for pretrained reward models that aren't lora-based
-        if reward_model_config.backbone_model_name_or_path != 'huggyllama/llama-7b':
-            base_reward_model = reward_model_module.RewardNoLoraModel(
-                transformer_cache_dir=args.transformer_cache_dir,
-                four_bits=False,
-                gradient_checkpointing=args.gradient_checkpointing,
-                flash_attn=args.flash_attn,
-                is_trainable=is_trainable,
-                config=reward_model_config,
-                accelerator=accelerator,)
-        else:
-            base_reward_model = reward_model_module.RewardModel(
-                transformer_cache_dir=args.transformer_cache_dir,
-                four_bits=args.four_bits,
-                use_lora=args.use_lora,
-                lora_r=args.lora_r,
-                lora_alpha=args.lora_alpha,
-                lora_dropout=args.lora_dropout,
-                gradient_checkpointing=args.gradient_checkpointing,
-                flash_attn=args.flash_attn,
-                pretrained_lora_weights=args.reward_model_checkpoint_dir,
-                is_trainable=is_trainable,
-                config=reward_model_config,
-                accelerator=accelerator,)
-        return base_reward_model
 
     # Model construction below seems convoluted, but it's made to trade time for RAM efficiency.
     # For large models, object creation could be extremely RAM intensive.
@@ -492,12 +450,12 @@ def make_models(
     if args.init_value_with_reward:
         # Initialize value from reward model a la OAI.
         logger.warning("Initializing value model with reward model.")
-        value_model = rl_models.make_value_with_base_model(args, make_reward_model(is_trainable=True).backbone_model, policy_tokenizer, accelerator)
+        value_model = rl_models.make_value_with_base_model(args, make_reward_model(args, accelerator, is_trainable=True).backbone_model, policy_tokenizer, accelerator)
     else:
         logger.warning("Initializing value model with policy model.")
         # Initialize value from policy. Works for sanity, but generally performs worse in instruction-following.
         # initializing value model with reward model won't work with encoder-decoder-based models
-        value_model = rl_models.make_value_with_base_model(args, make_generative_policy(is_trainable=True), policy_tokenizer, accelerator)
+        value_model = rl_models.make_value_with_base_model(args, make_generative_policy(args, accelerator, is_trainable=True), policy_tokenizer, accelerator)
 
     value_model = accelerator.prepare(value_model)  # noqa
 
@@ -505,9 +463,8 @@ def make_models(
     # ref_policy.requires_grad_(False)
     # ref_policy = accelerator.prepare(ref_policy)  # noqa
 
-    reward_model = make_reward_model(is_trainable=False)
+    reward_model = make_reward_model(args, accelerator, is_trainable=False)
     reward_model.requires_grad_(False)
-    reward_model = accelerator.prepare(reward_model)
 
     # TODO: This is a hack to get FSDP running. Remove in the future when we figure things out.
     if accelerator.distributed_type == accelerate.DistributedType.FSDP:

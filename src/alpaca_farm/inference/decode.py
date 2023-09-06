@@ -73,6 +73,7 @@ def load_model_and_tokenizer_for_inference(
     resize_token_embeddings_if_mismatch=True,
     load_in_4_bits=False,
     checkpoint_dir: Optional[str] = None,
+    accelerator=None,
 ) -> Tuple[transformers.PreTrainedModel, transformers.PreTrainedTokenizer]:
     """Load huggingface model and tokenizer from path or with name for inference.
 
@@ -111,11 +112,12 @@ def load_model_and_tokenizer_for_inference(
 
     if load_in_4_bits:
         assert checkpoint_dir is not None, "checkpoint_dir (path to lora weights) must be specified when load_in_4_bits is True"
-        model = common.get_accelerate_model(model_name_or_path, pretrained_lora_weights=checkpoint_dir, flash_attn=False, is_trainable=False, **model_kwargs).eval()
+        model = common.get_accelerate_model(model_name_or_path, accelerator=accelerator, pretrained_lora_weights=checkpoint_dir, flash_attn=False, is_trainable=False, **model_kwargs).eval()
         common.let_model_save_mem_when_zero_grad(model)
     else:
         assert checkpoint_dir is None, "checkpoint_dir (path to lora weights) is defined, but not loading them bc load_in_4_bits is False"
         model = model_cls.from_pretrained(model_name_or_path, **model_kwargs).eval()
+        accelerator.prepare(model)
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_name_or_path, **tokenizer_kwargs)
     tokenizer.padding = "longest"
@@ -333,6 +335,7 @@ def decode_prompts_with_huggingface(
     seed: Optional[int] = None,
     communication_num_chunks: int = 1,
     beta: float = 1.0,
+    accelerator = None,
     **decoding_kwargs,
 ) -> Union[List[List[str]], List[str]]:
     """Decode from a huggingface model given a sequence of string prompts.
@@ -372,6 +375,7 @@ def decode_prompts_with_huggingface(
             model_kwargs=dict(torch_dtype=utils.convert_str_dtype_to_torch_dtype(mixed_precision)),
             load_in_4_bits=load_in_4_bits,
             checkpoint_dir=checkpoint_dir,
+            accelerator=accelerator,
         )
         
         if flash_attn:

@@ -47,6 +47,7 @@ def run_decode(
     checkpoint_dir: Optional[str] = None,
     model_and_tokenizer: Optional[Tuple] = None,
     seed: Optional[int] = None,
+    accelerator=None,
 ):
     """Decode samples from the policy language model.
 
@@ -103,6 +104,7 @@ def run_decode(
         checkpoint_dir=checkpoint_dir,
         model_and_tokenizer=model_and_tokenizer,
         seed=seed,
+        accelerator=accelerator,
     )
 
     sample_mode = sample_mode_formatter.format(temperature=temperature, max_new_tokens=max_new_tokens, seed=seed)

@@ -73,10 +73,9 @@ class RewardModel(transformers.PreTrainedModel):
         outputs = self.backbone_model(
             input_ids=input_ids, attention_mask=attention_mask, return_dict=True, output_hidden_states=True, **kwargs
         )
-        with self.accelerator.autocast():
-            last_hidden_state = outputs.hidden_states[-1]
-            last_hidden_state_at_the_end = last_hidden_state[:, -1, :]
-            rewards = self.reward_head(last_hidden_state_at_the_end).squeeze(-1)
+        last_hidden_state = outputs.hidden_states[-1]
+        last_hidden_state_at_the_end = last_hidden_state[:, -1, :]
+        rewards = self.reward_head(last_hidden_state_at_the_end).squeeze(-1)
         return RewardModelOutput(rewards=rewards) if return_dict else (rewards,)
 
     def get_input_embeddings(self) -> nn.Module:
@@ -126,9 +125,8 @@ class RewardNoLoraModel(transformers.PreTrainedModel):
     def forward(self, input_ids, attention_mask=None, return_dict=True, **kwargs):
         # We only compute the rewards and don't compute the logistic regression loss in this function so that it's
         # easier to use for later stages of reranking / RL training.
-        with self.accelerator.autocast():
-            rewards = self.model(input_ids, attention_mask=attention_mask, return_dict=True, **kwargs).logits.squeeze(-1)
-            # rewards = self.function_to_apply(outputs.logits).squeeze(-1)
+        rewards = self.model(input_ids, attention_mask=attention_mask, return_dict=True, **kwargs).logits.squeeze(-1)
+        # rewards = self.function_to_apply(outputs.logits).squeeze(-1)
         
         # special case of bart summarization reward model, need to take the difference btw faithful (label 1) and hallucination (label 0)
         if rewards.shape[-1] > 1 and rewards.ndim == 2:
