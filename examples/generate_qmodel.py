@@ -82,9 +82,9 @@ if __name__ == "__main__":
                                         temperature=args.temp, 
                                         per_device_batch_size=args.per_device_batch_size, 
                                         load_in_4_bits=args.load_in_4_bits,
-                                        mixed_precision=mixed_precision,
                                         flash_attn=args.flash_attn,
                                         accelerator=accelerator)
+                                        mixed_precision=mixed_precision,
         else: 
             list_dict_data = run_decode_augmented(decoder_name_or_path=args.decoder_name_or_path,
                                         checkpoint_dir=args.decoder_checkpoint_dir,
@@ -96,7 +96,7 @@ if __name__ == "__main__":
                                         per_device_batch_size=args.per_device_batch_size, 
                                         load_in_4_bits=args.load_in_4_bits,
                                         flash_attn=args.flash_attn,
-                                        mixed_precision=mixed_precision,
+                                        accelerator=accelerator,
                                         beta=args.beta,
                                         num_q_heads=args.num_q_heads,
                                         q_head_type=args.q_head_type,
