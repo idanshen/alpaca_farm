@@ -1,18 +1,16 @@
 import os
-import argparse
 from typing import List, Dict, Any
 
 import transformers
 import torch
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 from dataclasses import dataclass, field
 
-from best_of_n import run_decode_augmented
-from alpaca_farm import data_utils, common
+from alpaca_farm import common
 from alpaca_farm.utils import jload, jdump
-from alpaca_farm.models import reward_model as reward_model_module
+from alpaca_farm.models.make_models import make_reward_model
 from alpaca_farm.rl.trainer_utils import _make_padded_tokenizer
+from alpaca_farm import accelerate_patch
 
 """
 Arguments for the script
@@ -42,30 +40,6 @@ class Arguments:
             "help": "Path to a directory where transformers will cache the model. "
             "If None, transformers will use the default cache directory."
         },)
-
-
-def make_reward_model(args, is_trainable=False):
-    reward_model_config = reward_model_module.RewardConfig(backbone_model_name_or_path=args.reward_model_name_or_path)
-    # for pretrained reward models that aren't lora-based
-    if reward_model_config.backbone_model_name_or_path != 'huggyllama/llama-7b':
-        base_reward_model = reward_model_module.RewardNoLoraModel(
-            transformer_cache_dir=args.transformer_cache_dir,
-            four_bits=args.four_bits,
-            bfloat16=args.bf16,
-            flash_attn=args.flash_attn,
-            is_trainable=is_trainable,
-            config=reward_model_config, )
-    else:
-        base_reward_model = reward_model_module.RewardModel(
-            transformer_cache_dir=args.transformer_cache_dir,
-            four_bits=args.four_bits,
-            bfloat16=args.bf16,
-            use_lora=args.use_lora,
-            flash_attn=args.flash_attn,
-            pretrained_lora_weights=args.reward_model_checkpoint_dir,
-            is_trainable=is_trainable,
-            config=reward_model_config, )
-    return base_reward_model
 
 
 @torch.inference_mode()
@@ -126,8 +100,6 @@ if __name__ == "__main__":
     # set up tokenizer and set padding and truncation side to the right
     reward_tokenizer: transformers.PreTrainedTokenizer = _make_padded_tokenizer(model_name_or_path=args.reward_model_name_or_path)
     
-    reward_model = make_reward_model(args=args)
-
     # mixed precision
     if args.fp16:
         mixed_precision = 'fp16'
@@ -135,8 +107,13 @@ if __name__ == "__main__":
         mixed_precision = 'bf16'
     else:
         mixed_precision = None
-    reward_model.forward = common.cast_with_native_amp(reward_model.forward, mixed_precision=mixed_precision)
 
+    accelerator = accelerate_patch.MyAccelerator(
+        mixed_precision=mixed_precision,
+        log_with=[],
+    )
+    
+    reward_model = make_reward_model(args, accelerator, is_trainable=False)
     eval_data = evaluate_data(args, reward_model, eval_data_list_dict)
 
     # combine output file and reward outputs
