@@ -116,10 +116,13 @@ def load_model_and_tokenizer_for_inference(
     else:
         model = model_cls.from_pretrained(model_name_or_path, **model_kwargs).eval()
 
-    # TODO (seungwook): this may need to be fixed depending on the model b/c currently assumes llama for pad_token_id=0
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_name_or_path, **tokenizer_kwargs)
-    tokenizer.padding = 'longest'
-    tokenizer.pad_token_id = 0
+    tokenizer.padding = "longest"
+    if model_name_or_path == "huggyllama/llama-7b":
+        tokenizer.pad_token_id = 0
+    else:
+        if tokenizer.pad_token_id is None:
+            tokenizer.pad_token_id = tokenizer.eos_token_id
 
     return model, tokenizer
 
