@@ -99,7 +99,8 @@ if __name__ == "__main__":
                                         mixed_precision=mixed_precision,
                                         beta=args.beta,
                                         num_q_heads=args.num_q_heads,
-                                        q_head_type=args.q_head_type)
+                                        q_head_type=args.q_head_type,
+                                        accelerator=accelerator)
             
         print('Saving generated data to {}'.format(args.path_to_result))
         OUTPUT_DIR = './outputs/'
