@@ -334,7 +334,6 @@ def decode_prompts_with_huggingface(
     seed: Optional[int] = None,
     communication_num_chunks: int = 1,
     beta: float = 1.0,
-    accelerator = None,
     **decoding_kwargs,
 ) -> Union[List[List[str]], List[str]]:
     """Decode from a huggingface model given a sequence of string prompts.

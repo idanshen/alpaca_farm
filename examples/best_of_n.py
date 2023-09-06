@@ -47,7 +47,6 @@ def run_decode(
     checkpoint_dir: Optional[str] = None,
     model_and_tokenizer: Optional[Tuple] = None,
     seed: Optional[int] = None,
-    accelerator=None,
 ):
     """Decode samples from the policy language model.
 
@@ -104,7 +103,6 @@ def run_decode(
         checkpoint_dir=checkpoint_dir,
         model_and_tokenizer=model_and_tokenizer,
         seed=seed,
-        accelerator=accelerator,
     )
 
     sample_mode = sample_mode_formatter.format(temperature=temperature, max_new_tokens=max_new_tokens, seed=seed)
@@ -145,7 +143,6 @@ def run_decode_augmented(
     model_and_tokenizer: Optional[Tuple] = None,
     beta: float = 1.0,
     seed: Optional[int] = None,
-    accelerator=None,
     **decoding_kwargs,
 ):
     """Decode samples from the policy language model augmented with a q value estimator.
@@ -211,7 +208,6 @@ def run_decode_augmented(
         beta=beta,
         num_q_heads=decoding_kwargs['num_q_heads'],
         q_head_type=decoding_kwargs['q_head_type'],
-        accelerator=accelerator,
     )
 
     sample_mode = sample_mode_formatter.format(temperature=temperature, max_new_tokens=max_new_tokens, seed=seed)

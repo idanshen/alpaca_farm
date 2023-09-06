@@ -84,7 +84,6 @@ if __name__ == "__main__":
                                         load_in_4_bits=args.load_in_4_bits,
                                         flash_attn=args.flash_attn,
                                         accelerator=accelerator)
-                                        mixed_precision=mixed_precision,
         else: 
             list_dict_data = run_decode_augmented(decoder_name_or_path=args.decoder_name_or_path,
                                         checkpoint_dir=args.decoder_checkpoint_dir,
@@ -99,8 +98,7 @@ if __name__ == "__main__":
                                         accelerator=accelerator,
                                         beta=args.beta,
                                         num_q_heads=args.num_q_heads,
-                                        q_head_type=args.q_head_type,
-                                        accelerator=accelerator)
+                                        q_head_type=args.q_head_type,)
             
         print('Saving generated data to {}'.format(args.path_to_result))
         OUTPUT_DIR = './outputs/'
