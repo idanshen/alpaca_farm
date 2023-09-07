@@ -4,7 +4,7 @@ import torch
 from peft.utils.save_and_load import get_peft_model_state_dict
 
 from .. import common
-import reward_model as reward_model_module
+from . import reward_model as reward_model_module
 
 # TODO (seungwook): not very good design b/c it masks what arguments are being passed and hardcodes them
 def make_generative_policy(args, accelerator, is_trainable=False):
@@ -71,6 +71,7 @@ def make_rewardsoup_model(args, accelerator, lora_checkpoints, coefs, is_trainab
     
     averaged_weights = average_weights()
     torch.cuda.empty_cache()
+    
     model = make_generative_policy(args, accelerator, is_trainable)
     model.load_state_dict(averaged_weights, strict=False) # b/c only loading lora
     
