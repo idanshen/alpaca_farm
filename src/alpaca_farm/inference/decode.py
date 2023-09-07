@@ -112,7 +112,7 @@ def load_model_and_tokenizer_for_inference(
 
     if load_in_4_bits:
         assert checkpoint_dir is not None, "checkpoint_dir (path to lora weights) must be specified when load_in_4_bits is True"
-        model = common.get_accelerate_model(model_name_or_path, accelerator=accelerator, pretrained_lora_weights=checkpoint_dir, flash_attn=False, is_trainable=False, **model_kwargs).eval()
+        model = common.get_accelerate_model(model_name_or_path, pretrained_lora_weights=checkpoint_dir, is_trainable=False, **model_kwargs).eval()
         common.let_model_save_mem_when_zero_grad(model)
     else:
         assert checkpoint_dir is None, "checkpoint_dir (path to lora weights) is defined, but not loading them bc load_in_4_bits is False"
@@ -150,7 +150,6 @@ def decode_prompts_with_huggingface_given_model(
     prompts: Sequence[str],
     decoding_args: HFDecodingArguments,
     per_device_batch_size=20,
-    mixed_precision: Optional[str] = None,
     max_instances=sys.maxsize,
     pad_to_length=2048,  # Force pad to this length for distributed communication to work.
     tf32=True,
@@ -174,8 +173,8 @@ def decode_prompts_with_huggingface_given_model(
     local_rank, world_size = distributed_utils.setup()
     device = torch.device("cuda", local_rank) if torch.cuda.is_available() else torch.device("cpu")
 
-    model.generate = common.cast_with_native_amp(model.generate, mixed_precision=mixed_precision)
-    logger.warning(f"mixed_precision = {mixed_precision}")
+    # model.generate = common.cast_with_native_amp(model.generate, mixed_precision=mixed_precision)
+    # logger.warning(f"mixed_precision = {mixed_precision}")
 
     generate_kwargs = copy.deepcopy(decoding_args.__dict__)
     generate_kwargs.update(
@@ -322,7 +321,7 @@ def decode_prompts_with_huggingface(
     decoding_args: HFDecodingArguments,
     cache_dir=constants.DEFAULT_CACHE_DIR,
     per_device_batch_size=20,
-    mixed_precision: Optional[str] = None,
+    accelerator = None,
     max_instances=sys.maxsize,
     pad_to_length=2048,  # Force pad to this length for distributed communication to work.
     tf32=True,
@@ -335,7 +334,6 @@ def decode_prompts_with_huggingface(
     seed: Optional[int] = None,
     communication_num_chunks: int = 1,
     beta: float = 1.0,
-    accelerator = None,
     **decoding_kwargs,
 ) -> Union[List[List[str]], List[str]]:
     """Decode from a huggingface model given a sequence of string prompts.
@@ -372,16 +370,12 @@ def decode_prompts_with_huggingface(
         model, tokenizer = load_model_and_tokenizer_for_inference(
             model_name_or_path=model_name_or_path,
             cache_dir=cache_dir,
-            model_kwargs=dict(torch_dtype=utils.convert_str_dtype_to_torch_dtype(mixed_precision)),
+            model_kwargs=dict(accelerator=accelerator, flash_attn=flash_attn),
             load_in_4_bits=load_in_4_bits,
             checkpoint_dir=checkpoint_dir,
             accelerator=accelerator,
         )
-        
-        if flash_attn:
-            print("Using Flash Attention. Notice that this feature requires per device batch size 1.")
-            from optimum.bettertransformer import BetterTransformer
-            model = BetterTransformer.transform(model)
+        model = accelerator.prepare(model)
     
     # TODO (seungwook): assumes that the policy and q model base are the same (may need to change)
     qlogits_processor = None
@@ -389,11 +383,12 @@ def decode_prompts_with_huggingface(
         q_model, q_tokenizer = load_model_and_tokenizer_for_inference(
             model_name_or_path=model_name_or_path,
             cache_dir=cache_dir,
-            model_kwargs=dict(torch_dtype=utils.convert_str_dtype_to_torch_dtype(mixed_precision)),
+            model_kwargs=dict(accelerator=accelerator, flash_attn=flash_attn),
             load_in_4_bits=load_in_4_bits,
             checkpoint_dir=q_checkpoint_dir,
         )
-        q_model = make_qfunction_with_base_model(Namespace(**decoding_kwargs), q_model, q_tokenizer)
+        q_model = accelerator.prepare(q_model)
+        q_model = make_qfunction_with_base_model(Namespace(**decoding_kwargs), q_model, q_tokenizer, accelerator=accelerator)
         # q_model.load_state_dict(torch.load(os.path.join(q_checkpoint_dir, 'adapter_model/q_head.pt'), map_location=q_model.device))
         # TODO (seungwook): depending on the type of q head (weights or whole pickled model), load differently
         q_model.load_q_head(os.path.join(q_checkpoint_dir, 'adapter_model/q_head.pt'))
@@ -401,9 +396,6 @@ def decode_prompts_with_huggingface(
         # delete num_q_heads and q_head_type from decoding_kwargs
         decoding_kwargs.pop('num_q_heads', None)
         decoding_kwargs.pop('q_head_type', None)
-
-        if flash_attn:
-            q_model = BetterTransformer.transform(q_model)
     
         qlogits_processor = QLogitsProcessor(q_model=q_model, beta=beta)
 
@@ -413,7 +405,6 @@ def decode_prompts_with_huggingface(
         prompts=prompts,
         decoding_args=decoding_args,
         per_device_batch_size=per_device_batch_size,
-        mixed_precision=mixed_precision,
         max_instances=max_instances,
         pad_to_length=pad_to_length,
         tf32=tf32,

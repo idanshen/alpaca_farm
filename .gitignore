@@ -165,7 +165,10 @@ cython_debug/
 outputs/
 wandb/
 fqe/
-fqe_2/
+fqe_kl/
+fqe_projection/
+fqe_kl_0.2/
+fqe_kl_projection/
 tmp/
 sft/
 spf/
