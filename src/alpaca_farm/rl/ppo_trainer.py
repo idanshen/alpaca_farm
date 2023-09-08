@@ -77,7 +77,7 @@ class PPOTrainer(rl_trainer.RLTrainer):
         non_score_rewards = -self.kl_ctl.value * kl
         shaped_rewards = non_score_rewards.clone()
         # This introduces a small index off by one bug if pad_token_id == eos_token_id.
-        terminal_positions = (responses != self.reward_tokenizer.pad_token_id).sum(dim=1) - 1 # TODO (seungwook): make sure this is supposed to use reward tokenizer
+        terminal_positions = (responses != self.policy_tokenizer.pad_token_id).sum(dim=1) - 1
         shaped_rewards[list(range(rewards.size(0))), terminal_positions] += rewards
         return dict(shaped_rewards=shaped_rewards, non_score_rewards=non_score_rewards, kl=kl)
 

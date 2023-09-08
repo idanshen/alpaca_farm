@@ -49,7 +49,7 @@ def main():
     accelerator.init_trackers(
         training_args.wandb_project,
         init_kwargs={"wandb": {"name": training_args.run_name}},
-        config=training_args.__dict__,
+        config=training_args.__dict__ | data_args.__dict__,
     )
     logger.warning(accelerator.state, main_process_only=False)  # Each process log their own state.
 

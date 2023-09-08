@@ -1,5 +1,5 @@
 from .. import common
-import reward_model as reward_model_module
+import alpaca_farm.models.reward_model as reward_model_module
 
 def make_generative_policy(args, accelerator, is_trainable=False):
     base_model = common.get_accelerate_model(
