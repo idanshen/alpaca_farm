@@ -20,6 +20,7 @@ import pandas as pd
 import torch
 import tqdm
 import transformers
+from peft import PeftModel, LoraConfig, TaskType
 from torch import nn
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullStateDictConfig
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
@@ -29,7 +30,7 @@ from accelerate import DistributedType
 import peft
 
 from .. import accelerate_patch, common, constants, data_preprocessor, logging, torch_ops, utils
-from ..common import save_peft_model
+from ..common import save_peft_model, find_all_linear_names, create_new_lora_adapter
 from ..models import rl_models
 from ..models.make_models import make_reward_model, make_generative_policy
 from ..types import LRScheduler, Tensor
@@ -47,10 +48,10 @@ class PPOTrainer(rl_trainer.RLTrainer):
         eval_dataset: data_preprocessor.QueryDataset,
         data_collator: Callable,
         policy: rl_models.ActorCritic,
-        ref_policy: rl_models.Policy,
         reward_model: nn.Module,
         tokenizer: List[transformers.PreTrainedTokenizer],
         accelerator: accelerate_patch.MyAccelerator,
+        ref_policy: Optional[rl_models.Policy] = None,
         optimizer: Optional[torch.optim.Optimizer] = None,
         lr_scheduler: Optional[LRScheduler] = None,
     ):
@@ -125,7 +126,8 @@ class PPOTrainer(rl_trainer.RLTrainer):
         # Generally, try to use the wrapped model as much as you can, since it's got the autocast/cast-back wrappers.
         unwrapped_policy = self.accelerator.unwrap_model(self.policy, keep_fp32_wrapper=True)
 
-        self.ref_policy.eval()
+        if self.ref_policy is not None:
+            self.ref_policy.eval()
         self.reward_model.eval()
 
         rollouts = []
@@ -145,7 +147,10 @@ class PPOTrainer(rl_trainer.RLTrainer):
             # Evaluate logprobs of the samples.
             rollouts_batch = {"queries": queries, "query_attn_masks": query_attn_masks, "responses": responses}
             policy_outputs = self.policy(**rollouts_batch, temperature=self.args.temperature)
-            ref_policy_outputs = self.ref_policy(**rollouts_batch, temperature=self.args.temperature)
+            if self.ref_policy is None:
+                ref_policy_outputs = self.policy(**rollouts_batch, temperature=self.args.temperature, ref_policy=True)
+            else:
+                ref_policy_outputs = self.ref_policy(**rollouts_batch, temperature=self.args.temperature)
             policy_outputs = common.unpack_dict(
                 policy_outputs, keys=("logprobs", "values", "entropies"), return_type=dict
             )
@@ -447,17 +452,24 @@ def make_models(
     else:
         logger.warning("Initializing value model with policy model.")
         # Initialize value from policy. Works for sanity, but generally performs worse in instruction-following.
-        value_model = rl_models.make_value_with_base_model(args, make_generative_policy(args, accelerator, is_trainable=True), policy_tokenizer, accelerator)
+        if isinstance(policy.base_model, PeftModel) and policy.base_model.active_adapter == "policy":
+            policy.base_model = create_new_lora_adapter(policy.base_model, name="value")
+            policy.base_model.set_adapter("policy")
+            value_model = rl_models.make_value_with_base_model(args, policy.base_model, policy_tokenizer, accelerator, peft_model=True)
+        else:
+            value_model = rl_models.make_value_with_base_model(args, make_generative_policy(args, accelerator, is_trainable=True), policy_tokenizer, accelerator)
     actor_critic = rl_models.ActorCritic(policy=policy, value_model=value_model)
     # We cast how respond should run. It's important the dtypes be consistent with training, since a bf16
     # fine-tuned model might not work with fp16 inference.
     # Cast step below must precede accelerator.prepare(), since wrapped model might not have `respond` method.
     actor_critic = common.prepare_model_for_custom_fn(model=actor_critic, fn_name="respond", accelerator=accelerator)
     actor_critic = accelerator.prepare(actor_critic)  # noqa
-
-    ref_policy = rl_models.make_policy_with_base_model(args, make_generative_policy(args, accelerator, is_trainable=False), policy_tokenizer)
-    ref_policy.requires_grad_(False)
-    ref_policy = accelerator.prepare(ref_policy)  # noqa
+    if isinstance(policy.base_model, PeftModel) and policy.base_model.active_adapter == "policy":
+        ref_policy = None
+    else:
+        ref_policy = rl_models.make_policy_with_base_model(args, make_generative_policy(args, accelerator, is_trainable=False), policy_tokenizer)
+        ref_policy.requires_grad_(False)
+        ref_policy = accelerator.prepare(ref_policy)  # noqa
 
     reward_model = make_reward_model(args, accelerator, is_trainable=False)
     reward_model.requires_grad_(False)

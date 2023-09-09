@@ -81,6 +81,7 @@ class AutoregressivePolicy(Policy):
         query_attn_masks: Tensor,
         responses: Tensor,
         temperature: Optional[float] = None,
+        ref_policy: bool = False,
     ) -> Dict[str, Tensor]:
         # TODO(lxuechen): Refactor attention mask. Here query_attn_masks overrides padding-based attention mask.
         if temperature is None:
@@ -94,7 +95,12 @@ class AutoregressivePolicy(Policy):
             attention_mask=attention_mask,
             use_cache=False,
         )
-        outputs = self.base_model(**inputs, output_hidden_states=True)
+        if ref_policy:
+            self.base_model.set_adapter("default")
+            outputs = self.base_model.model(**inputs, output_hidden_states=True)
+            self.base_model.set_adapter("policy")
+        else:
+            outputs = self.base_model(**inputs, output_hidden_states=True)
         original_logits = outputs.logits[:, -responses.shape[1] - 1 : -1]
         logits = original_logits / temperature
         labels = input_ids[:, -responses.shape[1] :]
@@ -141,13 +147,14 @@ class AutoregressivePolicy(Policy):
 
 class Value(nn.Module, abc.ABC):
     def __init__(
-        self, args, base_model: transformers.PreTrainedModel, base_tokenizer: transformers.PreTrainedTokenizer, accelerator: accelerate.Accelerator,
+        self, args, base_model: transformers.PreTrainedModel, base_tokenizer: transformers.PreTrainedTokenizer, accelerator: accelerate.Accelerator, peft_model: bool = False,
     ):
         super().__init__()
         self.args = args
         self.base_model = base_model
         self.base_tokenizer = base_tokenizer
         self.accelerator = accelerator
+        self.peft_model = peft_model
         hidden_size = common.get_transformer_hidden_size(base_model)
         hidden_layer_device = list(self.base_model.parameters())[-1].device
 
@@ -176,7 +183,10 @@ class AutoregressiveValue(Value):
             attention_mask=sequence_attn_masks,
             use_cache=False,
         )
-        outputs = self.base_model.model(**inputs, output_hidden_states=True)
+        if self.peft_model:
+            self.base_model.set_adapter("value")
+            outputs = self.base_model.model(**inputs, output_hidden_states=True)
+            self.base_model.set_adapter("policy")
         # get the hidden state of the last layer
         if only_last:
             last_hidden_state = outputs.hidden_states[-1][:, - 1:, :].squeeze(1)
@@ -204,10 +214,11 @@ class ActorCritic(nn.Module):
         query_attn_masks: Tensor,
         responses: Tensor,
         temperature: Optional[float] = None,
+        ref_policy: bool = False,
     ) -> Dict[str, Tensor]:
         # Assume the policy and value model share the same tokenizer.
         # TODO (seungwook): fix this assumption!!!
-        o1 = self.policy(queries, query_attn_masks, responses, temperature)
+        o1 = self.policy(queries, query_attn_masks, responses, temperature, ref_policy)
         o2 = self.value_model(queries, query_attn_masks, responses)
         return {**o1, **o2}
 
@@ -309,11 +320,12 @@ def make_value_with_base_model(
     base_model: transformers.PreTrainedModel,
     base_tokenizer: transformers.PreTrainedTokenizer,
     accelerator: accelerate.Accelerator,
+    peft_model: bool = False,
 ) -> Value:
     if base_model.config.is_encoder_decoder:
         raise NotImplementedError
     else:
-        return AutoregressiveValue(args, base_model, base_tokenizer, accelerator)
+        return AutoregressiveValue(args, base_model, base_tokenizer, accelerator, peft_model=peft_model)
 
 def make_qfunction_with_base_model(
     args,

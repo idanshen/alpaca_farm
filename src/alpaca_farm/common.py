@@ -49,7 +49,7 @@ from peft import (
     TaskType,
     get_peft_model,
     get_peft_model_state_dict,
-    PeftModel, PeftModelForCausalLM, LoraModel, prepare_model_for_kbit_training
+    PeftModel, PeftModelForCausalLM, LoraModel, prepare_model_for_kbit_training, set_peft_model_state_dict
 )
 from peft.tuners.lora import LoraLayer
 
@@ -143,6 +143,13 @@ def make_generative_lm(
     return model_cls.from_pretrained(model_name_or_path, **kwargs)
 
 
+def create_new_lora_adapter(model:PeftModel, name: str) -> PeftModel:
+    lora_config = model.peft_config['default']
+    model.add_adapter(peft_config=lora_config, adapter_name=name)
+    set_peft_model_state_dict(model, get_peft_model_state_dict(model,adapter_name="default"), adapter_name=name)
+    return model
+
+
 def get_accelerate_model(
     model_name_or_path: str,
     accelerator: accelerate.Accelerator,
@@ -213,6 +220,8 @@ def get_accelerate_model(
         if pretrained_lora_weights is not None:
             print("Loading adapters from checkpoint.")
             model = PeftModel.from_pretrained(model, pretrained_lora_weights, is_trainable=is_trainable)
+            model = create_new_lora_adapter(model, name="policy")
+            model.set_adapter("policy")
         else:
             print(f'adding LoRA modules...')
             model = get_peft_model(model, config)
