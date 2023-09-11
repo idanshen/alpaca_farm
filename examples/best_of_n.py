@@ -89,7 +89,7 @@ def run_decode(
     
     prompts, list_dict_data = prompts[:max_instances], list_dict_data[:max_instances]
 
-    outputs = decode.decode_prompts_with_huggingface(
+    outputs,_ = decode.decode_prompts_with_huggingface(
         model_name_or_path=decoder_name_or_path,
         prompts=prompts,
         decoding_args=decode.HFDecodingArguments(
@@ -190,7 +190,7 @@ def run_decode_augmented(
         
     prompts, list_dict_data = prompts[:max_instances], list_dict_data[:max_instances]
 
-    outputs = decode.decode_prompts_with_huggingface(
+    outputs, avg_kl = decode.decode_prompts_with_huggingface(
         model_name_or_path=decoder_name_or_path,
         prompts=prompts,
         decoding_args=decode.HFDecodingArguments(
@@ -225,7 +225,7 @@ def run_decode_augmented(
     if output_path is not None and distributed_utils.is_main_process():
         utils.jdump(return_list_dict_data, output_path)
 
-    return return_list_dict_data
+    return return_list_dict_data, avg_kl
 
 
 def run_rerank(
