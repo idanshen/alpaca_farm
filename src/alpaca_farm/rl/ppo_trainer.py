@@ -73,13 +73,14 @@ class PPOTrainer(rl_trainer.RLTrainer):
     ) -> Dict[str, Tensor]:
         # For some reason, line below doesn't work.
         # kl = (logits.softmax(dim=-1) * (logits.log_softmax(dim=-1) - ref_logits.log_softmax(dim=-1))).sum(dim=-1)
+        realkl = self.kl(torch.softmax(ref_logprobs.detach() / self.args.temperature, dim=-1), torch.softmax(logprobs.detach() / self.args.temperature, dim=-1))
         kl = torch.clamp(logprobs - ref_logprobs, min=0.0)
         non_score_rewards = -self.kl_ctl.value * kl
         shaped_rewards = non_score_rewards.clone()
         # This introduces a small index off by one bug if pad_token_id == eos_token_id.
         terminal_positions = (responses != self.policy_tokenizer.pad_token_id).sum(dim=1) - 1
         shaped_rewards[list(range(rewards.size(0))), terminal_positions] += rewards
-        return dict(shaped_rewards=shaped_rewards, non_score_rewards=non_score_rewards, kl=kl)
+        return dict(shaped_rewards=shaped_rewards, non_score_rewards=non_score_rewards, kl=kl, realkl=realkl)
 
     def _estimate_advantage(self, rewards: Tensor, values: Tensor) -> Dict[str, Tensor]:
         """Generalized advantage estimation.
@@ -306,7 +307,8 @@ class PPOTrainer(rl_trainer.RLTrainer):
 
     def record_step_stats(self, train_stats, rollouts, step_idx, **kwargs):
         kl = rollouts["kl"]
-        kl_sum_seq, kl_avg_seq = kl.sum(dim=1).mean(dim=0), kl.mean()
+        print('rollout realkl shape', rollouts['realkl'].shape)
+        kl_sum_seq, kl_avg_seq, realkl_avg_seq = kl.sum(dim=1).mean(dim=0), kl.mean(), rollouts["realkl"].mean()
         shaped_rewards = rollouts["shaped_rewards"].sum(dim=1).mean(dim=0)
         non_score_rewards = rollouts["non_score_rewards"].sum(dim=1).mean(dim=0)
         rewards = rollouts["rewards"].mean(dim=0)
@@ -314,6 +316,7 @@ class PPOTrainer(rl_trainer.RLTrainer):
             f"objective/kl_coef": kwargs["kl_coef"],
             f"objective/kl_sum_seq": kl_sum_seq,
             f"objective/kl_avg_seq": kl_avg_seq,
+            f"objective/realkl_avg_seq": realkl_avg_seq,
             f"objective/shaped_rewards": shaped_rewards,
             f"objective/non_score_rewards": non_score_rewards,
             f"objective/rewards": rewards,  # Original model reward.
