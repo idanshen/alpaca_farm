@@ -36,14 +36,22 @@ class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
     """
     A hack class to process logits to integrate learned Q values
 
+    q_model: AutoregressiveQfunction, the q model to use
+    beta: float, the beta value to use for weighting the q model
+    temperature: float, the temperature to use for softmax
+    record_kl: bool, whether to record the average KL divergence between the policy and q model
+    topk: int, the number of topk to use for the q model (assumes value estimator)
+
+
     (currently assumes that the tokenizer for the policy and q model are the same)
     """
-    def __init__(self, q_model: AutoregressiveQfunction, beta: float, temperature: float = 0.7, record_kl: bool = False):
+    def __init__(self, q_model: AutoregressiveQfunction, beta: float, temperature: float=0.7, record_kl: bool=False, topk: int=0):
         # call super init
         super().__init__()
         self.q_model = q_model # assumes that q model is already moved to device (whether on 1 device or multiple)
         self.beta = beta
         self.record_kl = record_kl
+        self.topk = topk
         if record_kl:
             self.temperature = temperature
             self.average_kl = 0.0
