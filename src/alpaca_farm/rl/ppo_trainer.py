@@ -307,7 +307,6 @@ class PPOTrainer(rl_trainer.RLTrainer):
 
     def record_step_stats(self, train_stats, rollouts, step_idx, **kwargs):
         kl = rollouts["kl"]
-        print('rollout realkl shape', rollouts['realkl'].shape)
         kl_sum_seq, kl_avg_seq, realkl_avg_seq = kl.sum(dim=1).mean(dim=0), kl.mean(), rollouts["realkl"].mean()
         shaped_rewards = rollouts["shaped_rewards"].sum(dim=1).mean(dim=0)
         non_score_rewards = rollouts["non_score_rewards"].sum(dim=1).mean(dim=0)
@@ -410,7 +409,6 @@ class PPOTrainer(rl_trainer.RLTrainer):
     @staticmethod
     def kl(X, Y):
         with torch.no_grad():
-            print('kl shape', X.shape, Y.shape)
             return torch.sum(X * torch.log(X) - X * torch.log(Y), dim=-1)
 
 def make_tokenizer(args):
