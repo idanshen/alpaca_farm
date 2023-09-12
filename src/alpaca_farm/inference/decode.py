@@ -38,22 +38,37 @@ class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
 
     (currently assumes that the tokenizer for the policy and q model are the same)
     """
-    def __init__(self, q_model: AutoregressiveQfunction, beta: float):
+    def __init__(self, q_model: AutoregressiveQfunction, beta: float, temperature: float = 0.7, record_kl: bool = False):
         # call super init
         super().__init__()
         self.q_model = q_model # assumes that q model is already moved to device (whether on 1 device or multiple)
         self.beta = beta
+        self.record_kl = record_kl
+        if record_kl:
+            self.temperature = temperature
+            self.average_kl = 0.0
+            self.num_points = 0
     
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
         # TODO (seungwook): may need to pass in mask as well?
         q_outputs = self.q_model(input_ids, only_last=True)
-        return scores + self.beta * q_outputs['qvalues'].squeeze()
+        augmented_q_outputs = scores + self.beta * q_outputs['qvalues'].squeeze()
+        if self.record_kl:
+            kl = self.kl(torch.softmax(scores/self.temperature, dim=-1), torch.softmax(augmented_q_outputs/self.temperature, dim=-1))
+            kl = torch.clamp(kl, min=0.0, max=100.0)
+            self.average_kl = (self.average_kl * self.num_points + kl) / (self.num_points + 1)
+            self.num_points += 1
+        return augmented_q_outputs
     
     def _apply(self, fn):
         super()._apply(fn)
         self.q_model = self.q_model._apply(fn)
         return self
 
+    @staticmethod
+    def kl(X, Y):
+        with torch.no_grad():
+            return torch.sum(X * torch.log(X) - X * torch.log(Y))
 
 @dataclasses.dataclass
 class NullCharCleanUp(object):
@@ -397,9 +412,9 @@ def decode_prompts_with_huggingface(
         decoding_kwargs.pop('num_q_heads', None)
         decoding_kwargs.pop('q_head_type', None)
     
-        qlogits_processor = QLogitsProcessor(q_model=q_model, beta=beta)
+        qlogits_processor = QLogitsProcessor(q_model=q_model, beta=beta, temperature=decoding_args.temperature, record_kl=True)
 
-    return decode_prompts_with_huggingface_given_model(
+    return_list = decode_prompts_with_huggingface_given_model(
         model=model,
         tokenizer=tokenizer,
         prompts=prompts,
@@ -414,3 +429,5 @@ def decode_prompts_with_huggingface(
         logits_processor=qlogits_processor,
         **decoding_kwargs,
     )
+    avg_kl = qlogits_processor.average_kl if qlogits_processor is not None else None
+    return return_list, avg_kl

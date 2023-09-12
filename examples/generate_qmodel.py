@@ -84,8 +84,9 @@ if __name__ == "__main__":
                                         load_in_4_bits=args.load_in_4_bits,
                                         flash_attn=args.flash_attn,
                                         accelerator=accelerator)
+            avg_kl = None
         else: 
-            list_dict_data = run_decode_augmented(decoder_name_or_path=args.decoder_name_or_path,
+            list_dict_data, avg_kl = run_decode_augmented(decoder_name_or_path=args.decoder_name_or_path,
                                         checkpoint_dir=args.decoder_checkpoint_dir,
                                         q_checkpoint_dir=args.q_checkpoint_dir,
                                         dataset_path=args.dataset_path,
@@ -99,6 +100,7 @@ if __name__ == "__main__":
                                         beta=args.beta,
                                         num_q_heads=args.num_q_heads,
                                         q_head_type=args.q_head_type,)
+            args.path_to_result = 'kl_{}_'.format(avg_kl) + args.path_to_result if avg_kl is not None else args.path_to_result
             
         print('Saving generated data to {}'.format(args.path_to_result))
         OUTPUT_DIR = './outputs/'

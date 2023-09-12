@@ -4,7 +4,7 @@ import torch
 from peft.utils.save_and_load import get_peft_model_state_dict
 
 from .. import common
-from . import reward_model as reward_model_module
+import alpaca_farm.models.reward_model as reward_model_module
 
 # TODO (seungwook): not very good design b/c it masks what arguments are being passed and hardcodes them
 def make_generative_policy(args, accelerator, is_trainable=False):
