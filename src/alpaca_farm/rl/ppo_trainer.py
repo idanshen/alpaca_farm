@@ -284,6 +284,16 @@ class PPOTrainer(rl_trainer.RLTrainer):
 
         entropy = outputs["entropies"].mean()
         approxkl = 0.5 * ((logprob - old_logprob) ** 2.0).mean()
+        realkl = self.kl(torch.softmax(old_logprob / self.args.temperature, dim=-1), torch.softmax(logprob / self.args.temperature, dim=-1))
+        realkl = torch.clamp(realkl, min=0.0, max=100.0).mean()
+
+        if self.record_kl:
+            kl = self.kl(torch.softmax(scores/self.temperature, dim=-1), torch.softmax(augmented_q_outputs/self.temperature, dim=-1))
+            kl = torch.clamp(kl, min=0.0, max=100.0)
+            self.average_kl = (self.average_kl * self.num_points + kl) / (self.num_points + 1)
+            self.num_points += 1
+        return augmented_q_outputs
+
 
         return_mean, return_var = returns.mean(), returns.var(unbiased=False)
         value_mean, value_var = values.mean(), values.var(unbiased=False)
@@ -402,6 +412,11 @@ class PPOTrainer(rl_trainer.RLTrainer):
                 except Exception as e:
                     logger.fatal(f"Failed to give read-write access to {output_dir}: {e}")
 
+    @staticmethod
+    def kl(X, Y):
+        with torch.no_grad():
+            print('kl shape', X.shape, Y.shape)
+            return torch.sum(X * torch.log(X) - X * torch.log(Y), dim=-1)
 
 def make_tokenizer(args):
     # policy_tokenizer left pads, since the policy requires batch decoding.
