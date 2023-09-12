@@ -52,6 +52,10 @@ class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
         self.beta = beta
         self.record_kl = record_kl
         self.topk = topk
+        
+        if topk > 0:
+            print(f'Enabling value estimator topk {self.topk} mode for LogitsProcesor')
+            
         if record_kl:
             self.temperature = temperature
             self.average_kl = 0.0
@@ -59,8 +63,22 @@ class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
     
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
         # TODO (seungwook): may need to pass in mask as well?
+        if self.topk > 0:
+            topk_ids = torch.topk(scores, self.topk, dim=-1).indices
+            input_ids = torch.cat([input_ids.repeat(self.topk, 1), topk_ids.T], dim=-1)
+        
         q_outputs = self.q_model(input_ids, only_last=True)
-        augmented_q_outputs = scores + self.beta * q_outputs['qvalues'].squeeze()
+        # TODO (seungwook): fix augmenting for topk value estimator
+        
+        # put these q outputs in the respective indices of the topk
+        zeros = torch.zeros_like(scores, device=scores.device)
+        zeros.scatter_(dim=-1, index=input_ids, src=q_outputs['qvalues'].squeeze())
+        
+        if self.topk > 0:
+            augmented_q_outputs = scores + 
+            pass
+        else:
+            augmented_q_outputs = scores + self.beta * q_outputs['qvalues'].squeeze() 
         if self.record_kl:
             kl = self.kl(torch.softmax(scores/self.temperature, dim=-1), torch.softmax(augmented_q_outputs/self.temperature, dim=-1))
             kl = torch.clamp(kl, min=0.0, max=100.0)
