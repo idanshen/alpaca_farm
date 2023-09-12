@@ -29,6 +29,7 @@ from .decode import load_model_and_tokenizer_for_inference
 logger = logging.get_logger(__name__)
 
 
+# TODO (seungwook): may need to change this fn for bs==1 (although eval bs==1 should automatically be ok)
 @torch.inference_mode()
 def score_sequences_with_huggingface_given_model(
     model: nn.Module,
