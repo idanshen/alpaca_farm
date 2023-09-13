@@ -68,17 +68,15 @@ class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
             input_ids = torch.cat([input_ids.repeat(self.topk, 1), topk_ids.T], dim=-1)
         
         q_outputs = self.q_model(input_ids, only_last=True)
-        # TODO (seungwook): fix augmenting for topk value estimator
         
-        # put these q outputs in the respective indices of the topk
-        zeros = torch.zeros_like(scores, device=scores.device)
-        zeros.scatter_(dim=-1, index=input_ids, src=q_outputs['qvalues'].squeeze())
-        
+        # TODO (seungwook): may want to only add advantage rather than V(s')
         if self.topk > 0:
-            augmented_q_outputs = scores + 
-            pass
+            q_scores = torch.zeros_like(scores, device=scores.device)
+            q_scores[:, topk_ids] = q_outputs['qvalues'].squeeze().T
+            augmented_q_outputs = scores + q_scores
         else:
             augmented_q_outputs = scores + self.beta * q_outputs['qvalues'].squeeze() 
+            
         if self.record_kl:
             kl = self.kl(torch.softmax(scores/self.temperature, dim=-1), torch.softmax(augmented_q_outputs/self.temperature, dim=-1))
             kl = torch.clamp(kl, min=0.0, max=100.0)
