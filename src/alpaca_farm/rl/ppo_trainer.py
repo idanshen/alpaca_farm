@@ -74,6 +74,7 @@ class PPOTrainer(rl_trainer.RLTrainer):
         # For some reason, line below doesn't work.
         # kl = (logits.softmax(dim=-1) * (logits.log_softmax(dim=-1) - ref_logits.log_softmax(dim=-1))).sum(dim=-1)
         realkl = self.kl(torch.softmax(ref_logprobs.detach() / self.args.temperature, dim=-1), torch.softmax(logprobs.detach() / self.args.temperature, dim=-1))
+        realkl = torch.clamp(realkl, min=0.0, max=100.0)
         kl = torch.clamp(logprobs - ref_logprobs, min=0.0)
         non_score_rewards = -self.kl_ctl.value * kl
         shaped_rewards = non_score_rewards.clone()
