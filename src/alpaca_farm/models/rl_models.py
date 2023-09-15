@@ -293,6 +293,8 @@ class AutoregressiveQfunction(Qfunction):
                 if self.args.num_q_heads > 1:
                     qvalues = qvalues.view(-1, self.args.num_q_heads, len(self.base_tokenizer))
             elif self.args.q_head_type == "projection":
+                if last_hidden_state.device != self.q_head.weight.device:
+                    last_hidden_state = last_hidden_state.to(self.q_head.weight.device)
                 h_features = self.q_head(last_hidden_state)  # from B x L x H to B x L x H'
                 t_features = self.token_features  # T x H'
                 qvalues = h_features @ t_features.T  # B x L x T
