@@ -71,7 +71,7 @@ if __name__ == "__main__":
         print('Output file already exists, skipping generating data')
     else:
         print('Start generating data')
-        if args.q_checkpoint_dir == '':
+        if args.q_checkpoint_dir == '': #and no multiple lora checkpoints
             print('No q model checkpoint dir is provided, using the default decoder model')
 
             list_dict_data = run_decode(decoder_name_or_path=args.decoder_name_or_path,

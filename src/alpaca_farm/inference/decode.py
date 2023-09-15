@@ -430,4 +430,9 @@ def decode_prompts_with_huggingface(
         **decoding_kwargs,
     )
     avg_kl = qlogits_processor.average_kl if qlogits_processor is not None else None
-    return return_list, avg_kl
+
+    if avg_kl is not None:
+        return return_list, avg_kl
+    # to make this compatible with old code that only expects return_list
+    else:
+        return return_list
