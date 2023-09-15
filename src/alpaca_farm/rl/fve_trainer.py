@@ -123,7 +123,6 @@ class FVETrainer(rl_trainer.RLTrainer):
         # Give up dropout throughout.
         # self._make_fsdp_happy()
 
-        self.ref_policy.eval()
         self.reward_model.eval()
 
         rollouts = []
@@ -166,13 +165,22 @@ class FVETrainer(rl_trainer.RLTrainer):
             text_sequences = [q + r for q, r in utils.zip_(text_queries, text_responses)]
             # TODO(lxuechen): This response retokenization has issues with OPT, since the tokenizer always prepend
             #  <bos_token>. But the issue is local to post_reward, which isn't an issue if we don't penalize.
-            sequences, responses = tuple(
-                self.reward_tokenizer(text, return_tensors="pt", padding=True, truncation=True)
-                for text in (text_sequences, text_responses)
-            )
-            sequences, responses = common.prepare_inputs((sequences, responses), device=self.accelerator.device)
+            responses = self.reward_tokenizer(text_responses, return_tensors="pt", padding=True, truncation=True)
+            responses = common.prepare_inputs(responses, device=self.accelerator.device)
 
-            reward_outputs = self.reward_model(**sequences)
+            # tokenizing for reward model with bs==1 and then collating
+            reward_outputs_list = []
+            for ts in text_sequences:
+                s = self.reward_tokenizer(ts, return_tensors="pt", truncation=True)
+                s = common.prepare_inputs(s, device=self.accelerator.device)
+                r = self.reward_model(**s)
+                reward_outputs_list.append(r.rewards)
+
+            reward_outputs = torch.cat(reward_outputs_list, dim=0)
+            reward_outputs = {'rewards': reward_outputs}
+
+            del text_responses, text_queries # prevent mistakes
+
             reward_outputs = self.post_reward(reward_outputs, responses.input_ids)
             rollouts_batch.update(reward_outputs)
 
@@ -393,7 +401,7 @@ class FVETrainer(rl_trainer.RLTrainer):
             unwrapped = model.base_model
             peft_model_path = os.path.join(output_dir, "adapter_model")
             save_peft_model(unwrapped, peft_model_path)
-            torch.save(model.value_head, os.path.join(output_dir, "value_head.pt")) # TODO (seungwook): should probs save its weights not the whole model
+            torch.save({'state_dict': model.value_head.state_dict()}, os.path.join(output_dir, "value_head.pt")) # TODO (seungwook): should probs save its weights not the whole model
 
             assert isinstance(
                 unwrapped, (transformers.OPTForCausalLM, transformers.LlamaForCausalLM, peft.PeftModelForCausalLM)
@@ -424,8 +432,9 @@ def make_tokenizer(args):
     )
     # reward_tokenizer left pads, since we need the embedding of the right most non-pad token.
     reward_tokenizer = _make_padded_tokenizer(
-        args.reward_model_name_or_path, cache_dir=args.cache_dir, use_fast=args.use_fast_tokenizer, # use default padding side
+        args.reward_model_name_or_path, cache_dir=args.cache_dir, use_fast=args.use_fast_tokenizer # use default padding side of rm
     )
+
     if policy_tokenizer.get_vocab() != reward_tokenizer.get_vocab():
         logger.info('Policy and reward tokenizers are different.')
         return [policy_tokenizer, reward_tokenizer]
@@ -465,6 +474,7 @@ def make_models(
 
     reward_model = make_reward_model(args, accelerator, is_trainable=False)
     reward_model.requires_grad_(False)
+    # skipping accelerator prepare b/c done within make_reward_model
 
     # TODO: This is a hack to get FSDP running. Remove in the future when we figure things out.
     if accelerator.distributed_type == accelerate.DistributedType.FSDP:

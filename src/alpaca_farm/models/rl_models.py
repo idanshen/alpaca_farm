@@ -148,13 +148,16 @@ class Value(nn.Module, abc.ABC):
         self.base_model = base_model
         self.base_tokenizer = base_tokenizer
         self.accelerator = accelerator
+
         hidden_size = common.get_transformer_hidden_size(base_model)
         hidden_layer_device = list(self.base_model.parameters())[-1].device
+        self.head_device = hidden_layer_device
 
         value_head = torch.nn.Linear(hidden_size, 1)
         value_head.weight.data.zero_()
         value_head.bias.data.zero_()
-        self.value_head = value_head.to(hidden_layer_device)
+        self.value_head = value_head.to(self.head_device
+                                        )
         self.model_parallel = True
         self.is_parallelizable = True
 
@@ -169,6 +172,7 @@ class AutoregressiveValue(Value):
             sequences = torch.cat([queries, responses], dim=1)
         else:
             sequences = queries
+
         sequence_attn_masks = sequences.ne(self.base_tokenizer.pad_token_id)
 
         inputs = self.base_model.prepare_inputs_for_generation(
