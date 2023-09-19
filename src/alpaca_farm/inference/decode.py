@@ -52,6 +52,8 @@ class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
         # TODO (seungwook): may need to pass in mask as well?
         q_outputs = self.q_model(input_ids, only_last=True)
+        if q_outputs['qvalues'].device != scores.device:
+            q_outputs['qvalues'] = q_outputs['qvalues'].to(scores.device)
         augmented_q_outputs = scores + self.beta * q_outputs['qvalues'].squeeze()
         if self.record_kl:
             kl = self.kl(torch.softmax(scores/self.temperature, dim=-1), torch.softmax(augmented_q_outputs/self.temperature, dim=-1))
