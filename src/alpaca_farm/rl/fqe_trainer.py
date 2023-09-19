@@ -273,8 +273,7 @@ class FQETrainer(rl_trainer.RLTrainer):
                 next_q_values = q_values[:, 1:, :].detach()
                 next_q_values = torch.cat([next_q_values, torch.zeros(next_q_values.shape[0], 1, len(self.policy_tokenizer)).to(self.accelerator.device)], dim=1)
                 # 1-step TD target
-                td_1_q_targets = rewards + self.args.gamma * torch.sum(next_q_values * logits.softmax(dim=-1), dim=2)
-                target_q_values = torch.max(torch.stack([td_1_q_targets, returns], dim=-1), dim=-1)
+                target_q_values = rewards + self.args.gamma * torch.sum(next_q_values * logits.softmax(dim=-1), dim=2)
 
         cql_loss = torch.sum(logits.softmax(dim=-1) * q_values_logits.log_softmax(dim=-1), dim=2).mean()
 
