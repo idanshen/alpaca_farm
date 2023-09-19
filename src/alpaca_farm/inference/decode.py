@@ -28,7 +28,7 @@ from transformers import LogitsProcessorList
 from peft import PeftModel
 
 from .. import common, constants, distributed_utils, logging, torch_ops, utils
-from ..models.rl_models import make_qfunction_with_base_model, AutoregressiveQfunction
+from ..models.rl_models import make_qfunction_with_base_model, make_value_with_base_model, AutoregressiveQfunction
 
 logger = logging.get_logger(__name__)
 
@@ -72,8 +72,8 @@ class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
         # TODO (seungwook): may want to only add advantage rather than V(s')
         if self.topk > 0:
             q_scores = torch.zeros_like(scores, device=scores.device)
-            q_scores[:, topk_ids] = q_outputs['qvalues'].squeeze().T
-            augmented_q_outputs = scores + q_scores
+            q_scores[:, topk_ids] = q_outputs['values'].squeeze().T
+            augmented_q_outputs = scores + self.beta * q_scores
         else:
             augmented_q_outputs = scores + self.beta * q_outputs['qvalues'].squeeze() 
             
@@ -367,6 +367,7 @@ def decode_prompts_with_huggingface(
     load_in_4_bits: bool = False,
     checkpoint_dir: Optional[str] = None,
     q_checkpoint_dir: Optional[str] = None,
+    v_checkpoint_dir: Optional[str] = None,
     flash_attn: bool = False,
     model_and_tokenizer: Optional[Tuple] = None,
     force_multisample_format: bool = False,
@@ -418,6 +419,8 @@ def decode_prompts_with_huggingface(
     
     # TODO (seungwook): assumes that the policy and q model base are the same (may need to change)
     qlogits_processor = None
+    assert not (q_checkpoint_dir is not None and v_checkpoint_dir is not None), "Cannot specify both q and v checkpoint dirs"
+    
     if q_checkpoint_dir is not None:
         q_model, q_tokenizer = load_model_and_tokenizer_for_inference(
             model_name_or_path=model_name_or_path,
@@ -437,6 +440,25 @@ def decode_prompts_with_huggingface(
         decoding_kwargs.pop('q_head_type', None)
     
         qlogits_processor = QLogitsProcessor(q_model=q_model, beta=beta, temperature=decoding_args.temperature, record_kl=True)
+    
+    if v_checkpoint_dir is not None:
+        v_model, v_tokenizer = load_model_and_tokenizer_for_inference(
+            model_name_or_path=model_name_or_path,
+            cache_dir=cache_dir,
+            model_kwargs=dict(accelerator=accelerator, flash_attn=flash_attn),
+            load_in_4_bits=load_in_4_bits,
+            checkpoint_dir=v_checkpoint_dir,
+        )
+        v_model = accelerator.prepare(v_model)
+        v_model = make_value_with_base_model(Namespace(**decoding_kwargs), v_model, v_tokenizer, accelerator=accelerator)
+        v_model.load_v_head(os.path.join(v_checkpoint_dir, 'adapter_model/value_head.pt'))
+        
+        qlogits_processor = QLogitsProcessor(q_model=q_model, beta=beta, temperature=decoding_args.temperature, record_kl=True, topk=decoding_args.top_k)
+        
+        # delete num_q_heads and q_head_type from decoding_kwargs (they should be None anyway)
+        decoding_kwargs.pop('num_q_heads', None)
+        decoding_kwargs.pop('q_head_type', None)
+        decoding_kwargs.pop('topk', None)
 
     return_list = decode_prompts_with_huggingface_given_model(
         model=model,

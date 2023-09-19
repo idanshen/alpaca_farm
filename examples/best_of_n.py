@@ -206,8 +206,8 @@ def run_decode_augmented(
         model_and_tokenizer=model_and_tokenizer,
         seed=seed,
         beta=beta,
-        num_q_heads=decoding_kwargs['num_q_heads'],
-        q_head_type=decoding_kwargs['q_head_type'],
+        num_q_heads=decoding_kwargs['num_q_heads'] if 'num_q_heads' in decoding_kwargs else None,
+        q_head_type=decoding_kwargs['q_head_type'] if 'q_head_type' in decoding_kwargs else None,
     )
 
     sample_mode = sample_mode_formatter.format(temperature=temperature, max_new_tokens=max_new_tokens, seed=seed)
