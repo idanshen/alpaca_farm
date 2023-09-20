@@ -7,6 +7,7 @@ import transformers
 from tqdm import tqdm
 import numpy as np
 from alpaca_farm.utils import jdump
+from best_of_n import run_decode
 
 from alpaca_farm import accelerate_patch, common, data_utils
 from alpaca_farm.models.make_models import make_generative_policy, make_reward_model
@@ -15,6 +16,7 @@ from alpaca_farm.rl.trainer_utils import _make_padded_tokenizer
 
 @dataclass
 class Arguments:
+    create_validation_dataset: bool = field(default=True, metadata={"help": "If True, creates a validation dataset. If False, creates a training dataset."})
     policy_model_name_or_path: str = field(
         default="decapoda-research/llama-7b-hf", metadata={"help": "Name to a huggingface native pretrained model or path to a model on disk."}
     ),
@@ -125,28 +127,40 @@ if __name__ == "__main__":
         mixed_precision='bf16' if args.bfloat16 else 'fp16',
         log_with=[],
     )
+    if args.create_validation_dataset:
+        policy_tokenizer: transformers.PreTrainedTokenizer = _make_padded_tokenizer(model_name_or_path=args.policy_model_name_or_path, padding_side='left')
+        reward_tokenizer: transformers.PreTrainedTokenizer = _make_padded_tokenizer(model_name_or_path=args.reward_model_name_or_path)
 
-    policy_tokenizer: transformers.PreTrainedTokenizer = _make_padded_tokenizer(model_name_or_path=args.policy_model_name_or_path, padding_side='left')
-    reward_tokenizer: transformers.PreTrainedTokenizer = _make_padded_tokenizer(model_name_or_path=args.reward_model_name_or_path)
-    
-    policy = make_generative_policy(args=args, accelerator=accelerator)
-    policy.eval()
-    
-    reward_model = make_reward_model(args=args, accelerator=accelerator)
-    reward_model.eval()
-    
-    data_module: dict = data_utils.make_rl_data_module(
-        tokenizer=[policy_tokenizer, reward_tokenizer], data_args=args, training_args=args
-    )
-    test_dataset = data_module["eval_dataset"]
-    data_collator = data_module["data_collator"]
-    print(f"Test dataset size: {len(test_dataset)}")
-    data_loader = DataLoader(
-        dataset=test_dataset,
-        collate_fn=data_collator,
-        batch_size=args.per_device_batch_size,
-        shuffle=True,
-        drop_last=True,
-    )
-    generated_data = generate_data(args, policy, policy_tokenizer, reward_model, reward_tokenizer, data_loader)
-    jdump(generated_data, args.output_file)
+        policy = make_generative_policy(args=args, accelerator=accelerator)
+        policy.eval()
+
+        reward_model = make_reward_model(args=args, accelerator=accelerator)
+        reward_model.eval()
+
+        data_module: dict = data_utils.make_rl_data_module(
+            tokenizer=[policy_tokenizer, reward_tokenizer], data_args=args, training_args=args
+        )
+
+        test_dataset = data_module["eval_dataset"]
+        data_collator = data_module["data_collator"]
+        print(f"Test dataset size: {len(test_dataset)}")
+        data_loader = DataLoader(
+            dataset=test_dataset,
+            collate_fn=data_collator,
+            batch_size=args.per_device_batch_size,
+            shuffle=True,
+            drop_last=True,
+        )
+        generated_data = generate_data(args, policy, policy_tokenizer, reward_model, reward_tokenizer, data_loader)
+        jdump(generated_data, args.output_file)
+    else:
+        list_dict_data = run_decode(decoder_name_or_path=args.policy_model_name_or_path,
+                                    checkpoint_dir=args.policy_model_checkpoint_dir,
+                                    num_return_sequences=1, temperature=1.0, per_device_batch_size=args.per_device_batch_size,
+                                    load_in_4_bits=args.four_bits,
+                                    flash_attn=args.flash_attn,
+                                    dataset_path=args.dataset_path, dataset_name=args.dataset_name,
+                                    split="train",
+                                    accelerator=accelerator,)
+        jdump(list_dict_data, args.output_file)
+
