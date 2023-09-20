@@ -93,7 +93,7 @@ def run_decode(
         model_name_or_path=decoder_name_or_path,
         prompts=prompts,
         decoding_args=decode.HFDecodingArguments(
-            temperature=temperature, num_return_sequences=num_return_sequences
+            temperature=temperature, max_new_tokens=max_new_tokens, num_return_sequences=num_return_sequences
         ),
         per_device_batch_size=per_device_batch_size,
         accelerator=accelerator,
@@ -194,7 +194,7 @@ def run_decode_augmented(
         model_name_or_path=decoder_name_or_path,
         prompts=prompts,
         decoding_args=decode.HFDecodingArguments(
-            temperature=temperature, num_return_sequences=num_return_sequences
+            temperature=temperature, max_new_tokens=max_new_tokens,num_return_sequences=num_return_sequences
         ),
         per_device_batch_size=per_device_batch_size,
         accelerator=accelerator,
