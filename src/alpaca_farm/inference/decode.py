@@ -154,7 +154,7 @@ class HFDecodingArguments:
     temperature: float = 1.0
     # do_sample: bool = True
     # num_beams: int = 1
-    # max_new_tokens: int = 100  # This is aligned with `openai_utils.OpenAIDecodingArguments`.
+    max_new_tokens: int = 100  # This is aligned with `openai_utils.OpenAIDecodingArguments`.
     num_return_sequences: int = 1
 
 
