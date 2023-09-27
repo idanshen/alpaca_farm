@@ -65,6 +65,10 @@ class DataArguments:
         default=21,
         metadata={"help": "Random seed."},
     )
+    results_dir: str = field(
+        default="./rlaif_results",
+        metadata={"help": "Directory to save results."},
+    )
 
 @dataclass
 class ModelArguments:
@@ -155,10 +159,30 @@ def evaluate_dataset(dataset, model_args, compute_alignment=False):
     else:
         return results
 
+def split_dataset(dataset, eval_ratio):
+    # Get the total size of the dataset
+    n = len(dataset)
+
+    # Calculate the split index 
+    split_index = int(n*(1-eval_ratio))
+
+    # Shuffle the indices 
+    shuffled_indices = np.random.permutation(n) 
+
+    # Split data
+    train_indices = shuffled_indices[:split_index]
+    val_indices = shuffled_indices[split_index:]
+
+    train_dataset = dataset[train_indices] 
+    val_dataset = dataset[val_indices]
+    
+    return train_dataset, val_dataset
+    
 def main():
     parser = transformers.HfArgumentParser((ModelArguments, DataArguments))
     model_args, data_args = parser.parse_args_into_dataclasses()
     np.random.seed(data_args.seed)
+    os.makedirs(data_args.results_dir, exist_ok=True)
     
     # response = openai.ChatCompletion.create(
     # model=model_args.model,
@@ -181,24 +205,11 @@ def main():
     # summary1 = 'Mum is mad at me for not flying on my own trip to meet my boyfriend.'
     # summary2 = 'I have made sure my mother is comfortable with my boyfriend travelling on a trip and now my mother is mad because I booked it.'
 
+    # load and split data
     dataset = load_dataset(data_args.dataset_path, data_args.dataset_name, split='train')
-
-    # Get the total size of the dataset
-    n = len(dataset)
-
-    # Calculate the split index 
-    split_index = int(n*(1-data_args.eval_ratio))
-
-    # Shuffle the indices 
-    shuffled_indices = np.random.permutation(n) 
-
-    # Split data
-    train_indices = shuffled_indices[:split_index]
-    val_indices = shuffled_indices[split_index:]
-
-    train_dataset = dataset[train_indices] 
-    val_dataset = dataset[val_indices]
+    train_dataset, val_dataset = split_dataset(dataset, data_args.eval_ratio)
     
+    # evaluate
     train_results = evaluate_dataset(train_dataset, model_args)
     val_results, alignment_score = evaluate_dataset(val_dataset, model_args, compute_alignment=True)
     
@@ -207,7 +218,7 @@ def main():
     results = train_results + val_results
     
     # save results
-    with open(f'rlaif_{model_args.model}_{data_args.dataset_path}_data.json', 'w') as f:
+    with open(os.path.join(data_args.results_dir ,f'rlaif_{model_args.model}_{data_args.dataset_path}_data.json'), 'w') as f:
         json.dump(results, f)
 
 
