@@ -435,4 +435,4 @@ def decode_prompts_with_huggingface(
         return return_list, avg_kl
     # to make this compatible with old code that only expects return_list
     else:
-        return return_list
+        return return_list, None
