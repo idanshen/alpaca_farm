@@ -3,12 +3,15 @@ from dataclasses import dataclass, field
 import logging
 import json
 
+from tqdm import tqdm
 import numpy as np
 from scipy.special import softmax
 import transformers
 from datasets import load_dataset
 import openai
 openai.api_key = os.getenv("OPENAI_API_KEY")
+
+from alpaca_farm.utils import jdump
 
 BASE_PREAMBLE = "You are an expert summary rater. Given a piece of text and\
 two of its possible summaries, output 1 or 2 to indicate\
@@ -76,12 +79,17 @@ class ModelArguments:
     max_tokens: int = field(default=500)
     logprobs: int = field(default=5, metadata={"help": "Number of log probs to return (5 is maximum)"})
 
-def evaluate_dataset(dataset, model_args, compute_alignment=False):
+def evaluate_dataset(dataset, model_args, save_filepath, compute_alignment=False, val_indices=None):
+    SAVE_INT = 100
     results = []
     total_correct = 0.0
     total = 0.0
     
-    for row in dataset:
+    if compute_alignment:
+        assert val_indices is not None, "val_indices must be provided if compute_alignment is True."
+
+    cur_idx = 0
+    for row in tqdm(dataset):
         labels = []
         for j in range(2):
             max_tokens = model_args.max_tokens
@@ -138,11 +146,11 @@ def evaluate_dataset(dataset, model_args, compute_alignment=False):
         labels = [(labels[0][0] + labels[1][0])/2, (labels[0][1] + labels[1][1])/2]
         labels = softmax(labels)
         
-        if compute_alignment:
+        if compute_alignment and cur_idx in val_indices:
             llm_label = np.argmax(labels)
             if llm_label == row['choice']:
-                total_correct +=1
-            total +=1 
+                total_correct += 1
+            total += 1 
             
         result = {
             'text': row['info']['post'],
@@ -153,13 +161,19 @@ def evaluate_dataset(dataset, model_args, compute_alignment=False):
             'model': model_args.model,
         }
         results.append(result)
-    
+        cur_idx += 1
+
+        if cur_idx % SAVE_INT == 0:
+            jdump(results, save_filepath)
+            print(f"Saved itr {cur_idx} results to {save_filepath}")
+            
+
     if compute_alignment:
         return results, total_correct/total
     else:
         return results
 
-def split_dataset(dataset, eval_ratio):
+def get_val_indices(dataset, eval_ratio):
     # Get the total size of the dataset
     n = len(dataset)
 
@@ -169,57 +183,32 @@ def split_dataset(dataset, eval_ratio):
     # Shuffle the indices 
     shuffled_indices = np.random.permutation(n) 
 
-    # Split data
-    train_indices = shuffled_indices[:split_index]
+    # # Split data
+    # train_indices = shuffled_indices[:split_index]
     val_indices = shuffled_indices[split_index:]
 
-    train_dataset = dataset[train_indices] 
-    val_dataset = dataset[val_indices]
+    # train_dataset = dataset[train_indices] 
+    # val_dataset = dataset[val_indices]
     
-    return train_dataset, val_dataset
+    return val_indices
     
 def main():
     parser = transformers.HfArgumentParser((ModelArguments, DataArguments))
     model_args, data_args = parser.parse_args_into_dataclasses()
     np.random.seed(data_args.seed)
     os.makedirs(data_args.results_dir, exist_ok=True)
-    
-    # response = openai.ChatCompletion.create(
-    # model=model_args.model,
-    # messages=[
-    #     {"role": "system", "content": "You are a helpful assistant taking the Certified Professional Coder (CPC) Exam. \
-    #         You will be given a question and four possible answers. Most of these answers will be from ICD, CPT, or HCPCS code manuals. \
-    #         You will answer the question by selecting the best answer from the four choices. \
-    #         You will answer with 1 character replies, only A, B, C, or D."},
-    #     {"role": "user", "content": f"### Question: ### Question: A CT scan identified moderate-sized right pleural effusion in a 50 year-old male. This was estimated to be 800 cc in size and had an appearance of fluid on the CT Scan. A needle is used to puncture through the chest tissues and enter the pleural cavity to insert a guidewire under ultrasound guidance. A pigtail catheter is then inserted at the length of the guidewire and secured by stitches. The catheter will remain in the chest and is connected to drainage system to drain the accumulated fluid. The CPT code is:\n \
-    #         A: 32557 \
-    #         B: 32555 \
-    #         C: 32556 \
-    #         D: 32550 \
-    #         ### Answer: "},
-    # ],
-    # max_tokens=model_args.max_tokens,
-    # )
-
-    # text = "My boyfriend and I are long distance. We have a trip planned this summer which involves me going over to him in the USA. This will be the second time I have actually been with him in person. I am flying from the UK with my mum to the east coast. The original plan was for me to fly over to my boyfriend in the west coast (my parents are holidaying on the east coast) but because my mum was freaking out so much about me going to meet my boyfriend i said we can all road trip there together. I even invited her on the trip with us. I have given her all of our dates so that she can travel around with us.\n\nThe plan was for me to stay on the 4th July and fly back on the 5th. Mum knew this. I told her I had booked a flight back already from the west coast to east coast (where she would pick me up and we would fly back to the UK together). She has gone mad at me because she can't believe I would book a flight when she told me she didn't want me flying on my own. At the time I had booked it she told me she wasn't gonna road trip with us. She knew the trip was happening.......how else was I to get home if I don't fly? \n\nI am fine flying on my own it doesn't bother me at all. I feel like I have done everything I can to make her feel comfortable with this trip and she is just trying to sabotage it. Thoughts??"
-    # summary1 = 'Mum is mad at me for not flying on my own trip to meet my boyfriend.'
-    # summary2 = 'I have made sure my mother is comfortable with my boyfriend travelling on a trip and now my mother is mad because I booked it.'
 
     # load and split data
     dataset = load_dataset(data_args.dataset_path, data_args.dataset_name, split='train')
-    train_dataset, val_dataset = split_dataset(dataset, data_args.eval_ratio)
+    val_indices = get_val_indices(dataset, data_args.eval_ratio)
     
     # evaluate
-    train_results = evaluate_dataset(train_dataset, model_args)
-    val_results, alignment_score = evaluate_dataset(val_dataset, model_args, compute_alignment=True)
-    
+    save_filepath = os.path.join(data_args.results_dir ,f'rlaif_{model_args.model}_{data_args.dataset_path}_data.json')
+    results, alignment_score = evaluate_dataset(dataset, model_args, save_filepath=save_filepath, compute_alignment=True, val_indices=val_indices)
     print(f"Alignment score: {alignment_score}")
-    # concatenate train_results and val_results
-    results = train_results + val_results
     
     # save results
-    with open(os.path.join(data_args.results_dir ,f'rlaif_{model_args.model}_{data_args.dataset_path}_data.json'), 'w') as f:
-        json.dump(results, f)
+    jdump(results, save_filepath)
 
 
 if __name__ == "__main__":
