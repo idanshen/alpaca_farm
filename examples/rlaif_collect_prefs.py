@@ -75,7 +75,7 @@ class DataArguments:
 
 @dataclass
 class ModelArguments:
-    model: str = field(default="gpt-3.5-turbo")
+    model: str = field(default="gpt-3.5-turbo-instruct")
     max_tokens: int = field(default=500)
     logprobs: int = field(default=5, metadata={"help": "Number of log probs to return (5 is maximum)"})
 
@@ -166,7 +166,7 @@ def evaluate_dataset(dataset, model_args, save_filepath, compute_alignment=False
         if cur_idx % SAVE_INT == 0:
             jdump(results, save_filepath)
             print(f"Saved itr {cur_idx} results to {save_filepath}")
-            
+
 
     if compute_alignment:
         return results, total_correct/total
