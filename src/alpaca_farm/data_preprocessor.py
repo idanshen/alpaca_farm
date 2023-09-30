@@ -105,7 +105,7 @@ def format_prompt_with_dataset(
         input_preprocess_fn = lambda x: "-".join(x["text"].replace("\n", " ").split("(Reuters) -")[1:]).strip()
         # overriding max query length
     elif dataset_path == 'openai/summarize_from_feedback':
-        filter_fn = lambda x: x["info"]["post"] is not None and x['info']["id"] is not None,
+        filter_fn = lambda x: x["info"]["post"] is not None and x['info']["id"] is not None
         id_map_fn = lambda x: {"id": x["info"]["id"]}
         input_preprocess_fn = lambda x: x["info"]["post"].replace("\n", " ")
 
