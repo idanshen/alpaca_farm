@@ -80,7 +80,22 @@ def run_decode(
             dataset=dataset[split_map[split]],
             prompt_dict=utils.jload(prompt_dict_path),
         )
-    # TODO (seungwook): fix this for the new tasks
+    elif dataset_path == 'openai/summarize_from_feedback':
+        def postprocessing_fn(df: pd.DataFrame):
+            # create instruction column
+            df['instruction'] = ["Generate a one-sentence summary of this post."] * len(df)
+
+            # create input column 
+            def extract_summary(row):
+                row['input'] = row['info']['post']
+            
+            df = df.apply(extract_summary, axis=1)
+
+        prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_data_frame(
+            df=pd.DataFrame(dataset[split]),
+            df_postprocessing_fn=postprocessing_fn,
+            prompt_dict=utils.jload(prompt_dict_path),
+        )
     else:
         prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_data_frame(
             df=pd.DataFrame(dataset[split]),

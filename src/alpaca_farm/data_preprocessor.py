@@ -30,6 +30,7 @@ from .types import Tensor
 logger = logging.get_logger(__name__)
 INSTRUCTIONS = {
     'argilla/news-summary': "Generate a one-sentence summary of this post.",
+    'openai/summarize_from_feedback': "Generate a one-sentence summary of this post.",
 }
 
 
