@@ -81,21 +81,9 @@ def run_decode(
             prompt_dict=utils.jload(prompt_dict_path),
         )
     elif dataset_path == 'openai/summarize_from_feedback':
-        def postprocessing_fn(df: pd.DataFrame):
-            # create instruction column
-            df['instruction'] = ["Generate a one-sentence summary of this post."] * len(df)
-
-            # create input column 
-            def extract_summary(row):
-                row['input'] = row['info']['post']
-            
-            df = df.apply(extract_summary, axis=1)
-
-            return df
-
-        prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_data_frame(
-            df=pd.DataFrame(dataset[split]),
-            df_postprocessor=postprocessing_fn,
+        prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_dataset(
+            dataset_path=dataset_path,
+            dataset=dataset[split],
             prompt_dict=utils.jload(prompt_dict_path),
         )
     else:
