@@ -11,4 +11,5 @@ CUDA_VISIBLE_DEVICES=$gpu python examples/create_validation_dataset.py \
   --output_file ./openai_summarize_from_feedback_fqe_train.json \
   --dataset_path openai/summarize_from_feedback \
   --dataset_name comparisons \
-  --flash_attn True
+  --flash_attn True \
+  --create_validation_dataset False
