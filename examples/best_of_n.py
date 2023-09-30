@@ -93,7 +93,7 @@ def run_decode(
 
         prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_data_frame(
             df=pd.DataFrame(dataset[split]),
-            df_postprocessing_fn=postprocessing_fn,
+            df_postprocessor=postprocessing_fn,
             prompt_dict=utils.jload(prompt_dict_path),
         )
     else:
