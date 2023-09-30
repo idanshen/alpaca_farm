@@ -149,11 +149,11 @@ def load_model_and_tokenizer_for_inference(
 class HFDecodingArguments:
     """Only the core args for decoding with HF models."""
 
-    # top_p: float = 0.9
-    # top_k: int = 0
+    top_p: float = 0.9
+    top_k: int = 0
     temperature: float = 1.0
-    # do_sample: bool = True
-    # num_beams: int = 1
+    do_sample: bool = True
+    num_beams: int = 1
     max_new_tokens: int = 100  # This is aligned with `openai_utils.OpenAIDecodingArguments`.
     num_return_sequences: int = 1
 
