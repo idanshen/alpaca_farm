@@ -91,6 +91,8 @@ def run_decode(
             
             df = df.apply(extract_summary, axis=1)
 
+            return df
+
         prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_data_frame(
             df=pd.DataFrame(dataset[split]),
             df_postprocessor=postprocessing_fn,
