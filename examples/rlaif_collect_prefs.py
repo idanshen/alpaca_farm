@@ -136,12 +136,16 @@ def evaluate_dataset(dataset, model_args, save_filepath, compute_alignment=False
             i = indices[0]
             logprobs = response['choices'][0]['logprobs']['top_logprobs'][i]
             
-            if '1' not in logprobs and '2' not in logprobs:
+            if '1' not in logprobs or '2' not in logprobs:
                 print("No 1 or 2 in logprobs!")
                 continue
             
             label = [logprobs['1'], logprobs['2']] if j == 0 else [logprobs['2'], logprobs['1']]
             labels.append(label)
+        
+        if len(labels) != 2:
+            print('Skipping row due to 1 or more logprobs not including the right tokens')
+            continue
         
         labels = [(labels[0][0] + labels[1][0])/2, (labels[0][1] + labels[1][1])/2]
         labels = softmax(labels)
