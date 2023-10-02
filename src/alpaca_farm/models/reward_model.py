@@ -56,7 +56,7 @@ class RewardModel(transformers.PreTrainedModel):
         self.is_parallelizable = True
 
         hidden_size = common.get_transformer_hidden_size(self.backbone_model)
-        reward_head = nn.Linear(hidden_size, 1)
+        reward_head = nn.Linear(hidden_size, 2) if 'soft_preference' in kwargs else nn.Linear(hidden_size, 1)
         torch.nn.init.zeros_(reward_head.bias)
         self.reward_head = reward_head.to(hidden_layer_device)
 

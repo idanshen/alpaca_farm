@@ -253,6 +253,89 @@ def preprocess_for_sft(
 
     return packaged_data
 
+def preprocess_for_soft_preference_reward_modeling(
+    df: pd.DataFrame,
+    prompt_dict: dict,
+    tokenizer: transformers.PreTrainedTokenizer,
+    df_postprocessor: Optional[Callable] = None,
+    end_sequence_with_eos: bool = False,
+    verbose=True,
+) -> dict[str, torch.Tensor]:
+    if df_postprocessor is not None:
+        df = df_postprocessor(df)
+    list_dict_data = df.to_dict(orient="records")
+
+    index_0, index_1 = tuple(
+        torch.full(size=(len(list_dict_data), 1), fill_value=fill_value, dtype=torch.long) for fill_value in (0, 1)
+    )
+
+    def _get_numeric_preference(example: dict):
+        # 1 vs 2 is stored in table, but for modeling we use 0 vs 1; remap here.
+        return {1: 0, 2: 1}[example["preference"]]
+
+    choice = torch.tensor([[_get_numeric_preference(dict_data)] for dict_data in list_dict_data])
+
+    def _get_text(example: dict, output_key: str):
+        source = format_prompt(example, prompt_dict=prompt_dict)
+        target = format_output(
+            example,
+            eos_token=tokenizer.eos_token if end_sequence_with_eos else None,
+            output_key=output_key,
+        )
+        return source + target
+
+    text_list_0, text_list_1 = tuple(
+        [_get_text(dict_data, key) for dict_data in list_dict_data] for key in ("output_1", "output_2")
+    )
+
+    def _merge_tokenization_metadata(metadata_list: Sequence[dict]) -> dict:
+        num_examples = sum(metadata["num_examples"] for metadata in metadata_list)
+        num_truncated_tokens = sum(metadata["num_truncated_tokens"] for metadata in metadata_list)
+        num_truncated_examples = sum(metadata["num_truncated_examples"] for metadata in metadata_list)
+        input_ids_avg_lens = (
+            sum([metadata["input_ids_avg_len"] * metadata["num_examples"] for metadata in metadata_list]) / num_examples
+        )
+        input_ids_max_len = max(metadata["input_ids_max_len"] for metadata in metadata_list)
+        input_ids_min_len = min(metadata["input_ids_min_len"] for metadata in metadata_list)
+        labels_avg_lens = (
+            sum([metadata["labels_avg_len"] * metadata["num_examples"] for metadata in metadata_list]) / num_examples
+        )
+        labels_max_len = max(metadata["labels_max_len"] for metadata in metadata_list)
+        labels_min_len = min(metadata["labels_min_len"] for metadata in metadata_list)
+        return dict(
+            num_examples=num_examples,
+            num_truncated_tokens=num_truncated_tokens,
+            num_truncated_examples=num_truncated_examples,
+            input_ids_avg_len=input_ids_avg_lens,
+            input_ids_max_len=input_ids_max_len,
+            input_ids_min_len=input_ids_min_len,
+            labels_avg_len=labels_avg_lens,
+            labels_max_len=labels_max_len,
+            labels_min_len=labels_min_len,
+        )
+
+    logger.warning(f"Tokenizing {len(list_dict_data)} pairs...")
+    tokenized_0, tokenized_1 = tuple(_tokenize_fn(text_list, tokenizer) for text_list in (text_list_0, text_list_1))
+    # "size" (bsz, 2, seq_len)
+    input_ids = [list(pair) for pair in utils.zip_(tokenized_0["input_ids"], tokenized_1["input_ids"])]
+    labels = [list(pair) for pair in utils.zip_(tokenized_0["labels"], tokenized_1["labels"])]
+    tokenization_metadata = _merge_tokenization_metadata(
+        [tokenized_0["tokenization_metadata"], tokenized_1["tokenization_metadata"]]
+    )
+
+    packaged_data = dict(
+        input_ids=input_ids,
+        labels=labels,
+        index_0=index_0,
+        index_1=index_1,
+        choice=choice,
+        tokenization_metadata=tokenization_metadata,
+        metadata=dict(mean_choice=choice.float().mean().item()),
+    )
+    if verbose:
+        logger.warning(f"Tokenization metadata:\n{utils.jdumps(packaged_data['tokenization_metadata'])}")
+
+    return packaged_data
 
 def preprocess_for_reward_modeling(
     df: pd.DataFrame,
@@ -396,6 +479,38 @@ class DataCollatorForSFTDataset(object):
             input_ids=input_ids,
             labels=labels,
             attention_mask=attention_mask,
+        )
+
+
+class SoftPreferenceRewardModelingDataset(Dataset):
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        prompt_dict: dict,
+        tokenizer: transformers.PreTrainedTokenizer,
+        df_postprocessor: Optional[Callable] = None,
+        end_sequence_with_eos: bool = False,
+    ):
+        super(SoftPreferenceRewardModelingDataset, self).__init__()
+        # TODO (seungwook): fix preprocessing
+        data_dict = preprocess_for_soft_preference_reward_modeling(
+            df=df,
+            prompt_dict=prompt_dict,
+            tokenizer=tokenizer,
+            df_postprocessor=df_postprocessor,
+            end_sequence_with_eos=end_sequence_with_eos,
+        )
+        self.input_ids = data_dict["input_ids"]
+        self.labels = data_dict["labels"]
+        self.metadata = data_dict["metadata"]
+
+    def __len__(self):
+        return len(self.input_ids)
+
+    def __getitem__(self, i) -> Dict[str, Tensor]:
+        return dict(
+            input_ids=self.input_ids[i],
+            labels=self.labels[i],
         )
 
 

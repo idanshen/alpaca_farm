@@ -101,6 +101,30 @@ def make_binary_reward_modeling_data_module(
     data_collator = DataCollatorForBinaryRewardModelingDataset(tokenizer=tokenizer)
     return dict(train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator)
 
+def make_soft_prerference_reward_modeling_data_module(
+    tokenizer: transformers.PreTrainedTokenizer,
+    data_args,
+    training_args,
+):
+    prompt_dict = utils.jload(data_args.prompt_dict_path)
+    pd.read_json(data_args.dataset_path))
+    
+    alpaca_human_preference = datasets.load_dataset(data_args.dataset_path, data_args.dataset_name)
+    train_df = pd.DataFrame(alpaca_human_preference["preference"])
+
+    train_dataset = BinaryRewardModelingDataset(
+        df=train_df,
+        prompt_dict=prompt_dict,
+        tokenizer=tokenizer,
+        end_sequence_with_eos=training_args.end_sequence_with_eos,
+    )
+    train_dataset, eval_dataset = split_train_into_train_and_eval(
+        train_dataset=train_dataset,
+        eval_size=data_args.eval_size,
+        seed=training_args.seed,
+    )
+    data_collator = DataCollatorForBinaryRewardModelingDataset(tokenizer=tokenizer)
+    return dict(train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator)
 
 def make_rl_data_module(
     tokenizer: List[transformers.PreTrainedTokenizer],

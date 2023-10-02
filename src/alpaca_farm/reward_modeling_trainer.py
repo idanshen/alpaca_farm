@@ -65,3 +65,18 @@ def compute_reward_modeling_metrics(eval_prediction: EvalPrediction) -> Dict:
         true_positive_rate=true_positive_rate,
         false_positive_rate=false_positive_rate,
     )
+
+class SoftPreferenceTrainer(transformers.Trainer):
+    def compute_loss(self, model, inputs, return_outputs=False):
+        # input_ids, attention_mask each of size (bsz, num_candidates, seq_len).
+        # index_0, index_1 each of size (bsz, num_pairs); indexes into input_ids.
+        # choice of size (bsz, num_pairs); 1 if index_1's seq is chosen, 0 otherwise.
+        input_ids, attention_mask, labels = common.unpack_dict(
+            inputs, keys=("input_ids", "attention_mask", "labels")
+        )
+        outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+        logits = outputs.rewards
+        
+        loss = F.cross_entropy(F.softmax(logits, dim=-1), labels, reduction="mean")
+        
+        return (loss, dict(logits=logits)) if return_outputs else loss
