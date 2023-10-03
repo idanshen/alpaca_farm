@@ -23,7 +23,9 @@ from alpaca_farm.utils import jload, jdump
 from . import logging, utils
 from .data_postprocessor import RewardConditioningPromptPostprocessor
 from .data_preprocessor import (
+    SoftPreferenceRewardModelingDataset,
     BinaryRewardModelingDataset,
+    DataCollatorForSoftPreferenceRewardModelingDataset,
     DataCollatorForBinaryRewardModelingDataset,
     DataCollatorForSFTDataset,
     DataCollatorForStackableDataset,
@@ -101,29 +103,32 @@ def make_binary_reward_modeling_data_module(
     data_collator = DataCollatorForBinaryRewardModelingDataset(tokenizer=tokenizer)
     return dict(train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator)
 
-def make_soft_prerference_reward_modeling_data_module(
+def make_soft_preference_reward_modeling_data_module(
     tokenizer: transformers.PreTrainedTokenizer,
     data_args,
     training_args,
 ):
     prompt_dict = utils.jload(data_args.prompt_dict_path)
-    pd.read_json(data_args.dataset_path))
-    
-    alpaca_human_preference = datasets.load_dataset(data_args.dataset_path, data_args.dataset_name)
-    train_df = pd.DataFrame(alpaca_human_preference["preference"])
+    train_df = pd.read_json(data_args.train_data_filpeath)
+    eval_df = pd.read_json(data_args.validation_data_filepath)
 
-    train_dataset = BinaryRewardModelingDataset(
+    train_dataset = SoftPreferenceRewardModelingDataset(
+        dataset_name=data_args.dataset_path,
         df=train_df,
         prompt_dict=prompt_dict,
         tokenizer=tokenizer,
         end_sequence_with_eos=training_args.end_sequence_with_eos,
     )
-    train_dataset, eval_dataset = split_train_into_train_and_eval(
-        train_dataset=train_dataset,
-        eval_size=data_args.eval_size,
-        seed=training_args.seed,
+
+    eval_dataset = SoftPreferenceRewardModelingDataset(
+        dataset_path=data_args.dataset_path,
+        df=eval_df,
+        prompt_dict=prompt_dict,
+        tokenizer=tokenizer,
+        end_sequence_with_eos=training_args.end_sequence_with_eos,
     )
-    data_collator = DataCollatorForBinaryRewardModelingDataset(tokenizer=tokenizer)
+
+    data_collator = DataCollatorForSoftPreferenceRewardModelingDataset(tokenizer=tokenizer)
     return dict(train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator)
 
 def make_rl_data_module(

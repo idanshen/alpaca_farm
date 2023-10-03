@@ -60,6 +60,7 @@ and overall quality as defined above."
 class DataArguments:
     dataset_path: str = field(default="openai/summarize_from_feedback")
     dataset_name: str = field(default="comparisons") 
+    partition: str = field(default='train')
     eval_ratio: float = field(
         default=0.15,
         metadata={"help": "Ratio of training to use for evaluation (AI Labeler Alignment)."},
@@ -207,7 +208,7 @@ def main():
     val_indices = get_val_indices(dataset, data_args.eval_ratio)
     
     # evaluate
-    save_filepath = os.path.join(data_args.results_dir ,f'rlaif_{model_args.model}_{data_args.dataset_path}_data.json')
+    save_filepath = os.path.join(data_args.results_dir ,f'rlaif_{model_args.model}_{data_args.dataset_path}_data_{data_args.partition}.json')
     results, alignment_score = evaluate_dataset(dataset, model_args, save_filepath=save_filepath, compute_alignment=True, val_indices=val_indices)
     print(f"Alignment score: {alignment_score}")
     
