@@ -14,7 +14,7 @@ CUDA_VISIBLE_DEVICES=0 accelerate launch --config_file "${config_file}" examples
   --seed 42 \
   --model_name_or_path "huggyllama/llama-7b" \
   --pretrained_lora_weights "/data/pulkitag/models/idanshen/shared/models/sft/test_5/" \
-  --dataset_name openai/summarize_from_feedback \
+  --dataset_path openai/summarize_from_feedback \
   --output_dir llama7b_rm_rlaif_openai_summarize_from_feedback \
   --model_max_length 2048 \
   --num_train_epochs 3 \
