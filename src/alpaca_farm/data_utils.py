@@ -113,7 +113,7 @@ def make_soft_preference_reward_modeling_data_module(
     eval_df = pd.read_json(data_args.validation_data_filepath)
 
     train_dataset = SoftPreferenceRewardModelingDataset(
-        dataset_name=data_args.dataset_path,
+        dataset_path=data_args.dataset_path,
         df=train_df,
         prompt_dict=prompt_dict,
         tokenizer=tokenizer,
