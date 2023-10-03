@@ -65,7 +65,7 @@ class TrainingArguments(transformers.TrainingArguments):
         },
     )
     label_names: List[str] = field(
-        default_factory=lambda: ["choice"],
+        default_factory=lambda: ["labels", "choice"],
         metadata={
             "help": "Names of the labels in the dataset. "
             "This is needed to get transformers.Trainer to not throw those tensors away before `compute_loss`."
