@@ -80,3 +80,21 @@ class SoftPreferenceTrainer(transformers.Trainer):
         loss = F.cross_entropy(F.softmax(logits, dim=-1), labels, reduction="mean")
         
         return (loss, dict(logits=logits)) if return_outputs else loss
+
+def compute_soft_preference_reward_modeling_metrics(eval_prediction: EvalPrediction) -> Dict:
+    # eval_prediction.label_ids is a tuple that matches up with `training_args.label_names`.
+    logits = torch.tensor(eval_prediction.predictions).squeeze(-1)
+    labels = torch.tensor(eval_prediction.label_ids).squeeze(-1)
+    predictions = logits.argmax(dim=-1).long()
+    accuracy = predictions.eq(labels).float().mean().item()
+    label_positive_rate = (labels == 1).float().mean().item()
+    positive_rate = (predictions == 1).float().mean().item()
+    true_positive_rate = (predictions * labels).float().sum().item() / labels.sum().item()
+    false_positive_rate = (predictions * (1 - labels)).float().sum().item() / (1 - labels).sum().item()
+    return dict(
+        accuracy=accuracy,
+        label_positive_rate=label_positive_rate,
+        positive_rate=positive_rate,
+        true_positive_rate=true_positive_rate,
+        false_positive_rate=false_positive_rate,
+    )
