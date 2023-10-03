@@ -2,11 +2,11 @@
 
 output_dir=$1
 run_name=$2
-model_name_or_path=$3
 
 config_file="./examples/accelerate_configs/rlhf_ppo_npp_llama.yaml"
 
 CUDA_VISIBLE_DEVICES=0 accelerate launch --config_file "${config_file}" examples/rlaif_reward_modeling.py \
+  --output_dir "${output_dir}" \
   --run_name "${run_name}" \
   --num_train_epochs 3 \
   --fp16 True \
@@ -19,7 +19,7 @@ CUDA_VISIBLE_DEVICES=0 accelerate launch --config_file "${config_file}" examples
   --model_max_length 2048 \
   --num_train_epochs 3 \
   --per_device_train_batch_size 1 \
-  --per_device_eval_batch_size 4 \
+  --per_device_eval_batch_size 1 \
   --gradient_accumulation_steps 128 \
   --eval_steps 50 \
   --save_strategy "steps" \
