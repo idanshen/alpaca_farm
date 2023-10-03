@@ -21,7 +21,7 @@ from typing import List, Literal
 import transformers
 from accelerate.utils import set_seed
 
-from alpaca_farm import common, accelerate_patch,constants, data_utils, logging, utils
+from alpaca_farm import common, accelerate_patch, constants, data_utils, logging, utils
 from alpaca_farm.models import reward_model
 from alpaca_farm.reward_modeling_trainer import SoftPreferenceTrainer, compute_soft_preference_reward_modeling_metrics
 

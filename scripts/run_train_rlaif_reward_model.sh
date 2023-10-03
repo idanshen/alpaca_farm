@@ -32,4 +32,4 @@ CUDA_VISIBLE_DEVICES=0 accelerate launch --config_file "${config_file}" examples
   --logging_steps 10 \
   --wandb_project "alpaca_farm" \
   --flash_attn True \
-  --tf32
+  --tf32 True
