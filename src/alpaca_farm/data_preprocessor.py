@@ -546,7 +546,7 @@ class DataCollatorForSoftPreferenceRewardModelingDataset(object):
     def _left_pad_helper(self, instances: Sequence[dict], key: str):
         # TODO(lxuechen): Potentially replace with `transformers.PretrainedTokenizerBase.prepare_for_model`.
         # `instances` is a list of dicts, each dict has key whose value is a list of tensors, possibly of unequal length.
-        input_ids = [seq for instance in instances for seq in instance[key]]  # Flatten.
+        input_ids = [instance[key] for instance in instances]
         input_ids = torch_ops.pad_sequence_from_left(
             input_ids,
             batch_first=True,
