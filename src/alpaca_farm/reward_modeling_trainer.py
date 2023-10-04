@@ -83,18 +83,35 @@ class SoftPreferenceTrainer(transformers.Trainer):
 
 def compute_soft_preference_reward_modeling_metrics(eval_prediction: EvalPrediction) -> Dict:
     # eval_prediction.label_ids is a tuple that matches up with `training_args.label_names`.
+    # human preferences
     logits = torch.tensor(eval_prediction.predictions).squeeze(-1)
-    labels = torch.tensor(eval_prediction.label_ids).squeeze(-1)
+    labels = torch.tensor(eval_prediction.label_ids[-1]).squeeze(-1)
     predictions = logits.argmax(dim=-1).long()
     accuracy = predictions.eq(labels).float().mean().item()
     label_positive_rate = (labels == 1).float().mean().item()
     positive_rate = (predictions == 1).float().mean().item()
     true_positive_rate = (predictions * labels).float().sum().item() / labels.sum().item()
     false_positive_rate = (predictions * (1 - labels)).float().sum().item() / (1 - labels).sum().item()
+
+    # llm preferences
+    llm_labels = torch.tensor(eval_prediction.label_ids[0]).squeeze(-1)
+    llm_labels = llm_labels.argmax(dim=-1).long()
+    llm_predictions = logits.argmax(dim=-1).long()
+    llm_accuracy = llm_predictions.eq(llm_labels).float().mean().item()
+    llm_label_positive_rate = (llm_labels == 1).float().mean().item()
+    llm_positive_rate = (llm_predictions == 1).float().mean().item()
+    llm_true_positive_rate = (llm_predictions * llm_labels).float().sum().item() / llm_labels.sum().item()
+    llm_false_positive_rate = (llm_predictions * (1 - llm_labels)).float().sum().item() / (1 - llm_labels).sum().item()
+
     return dict(
         accuracy=accuracy,
         label_positive_rate=label_positive_rate,
         positive_rate=positive_rate,
         true_positive_rate=true_positive_rate,
         false_positive_rate=false_positive_rate,
+        llm_accuracy=llm_accuracy,
+        llm_label_positive_rate=llm_label_positive_rate,
+        llm_positive_rate=llm_positive_rate,
+        llm_true_positive_rate=llm_true_positive_rate,
+        llm_false_positive_rate=llm_false_positive_rate,
     )
