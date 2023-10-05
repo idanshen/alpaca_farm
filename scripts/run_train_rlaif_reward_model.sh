@@ -32,6 +32,6 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch --config_file "${config_file}" exa
   --lr_scheduler_type "cosine" \
   --evaluation_strategy "steps" \
   --logging_steps 10 \
-  --wandb_project "alpaca_farm" \
+  --wandb_project "rlaif" \
   --flash_attn True \
   --tf32 True
