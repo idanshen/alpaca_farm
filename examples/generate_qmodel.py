@@ -135,8 +135,6 @@ if __name__ == "__main__":
             args.path_to_result = 'kl_{}_'.format(avg_kl) + args.path_to_result if avg_kl is not None else args.path_to_result
         else:
             raise NotImplementedError('Defining both q and sft checkpoitns are not supported!')
-        else: 
-
             
         print('Saving generated data to {}'.format(args.path_to_result))
         OUTPUT_DIR = './outputs/'
