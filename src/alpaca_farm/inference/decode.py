@@ -429,7 +429,6 @@ def decode_prompts_with_huggingface(
             checkpoint_dir=checkpoint_dir,
             accelerator=accelerator,
         )
-        model = accelerator.prepare(model)
     
     # TODO (seungwook): assumes that the policy and q model base are the same (may need to change)
     logits_processor = None
@@ -441,7 +440,6 @@ def decode_prompts_with_huggingface(
             load_in_4_bits=load_in_4_bits,
             checkpoint_dir=q_checkpoint_dir,
         )
-        q_model = accelerator.prepare(q_model)
         q_model = make_qfunction_with_base_model(Namespace(**decoding_kwargs), q_model, q_tokenizer, accelerator=accelerator)
         # q_model.load_state_dict(torch.load(os.path.join(q_checkpoint_dir, 'adapter_model/q_head.pt'), map_location=q_model.device))
         # TODO (seungwook): depending on the type of q head (weights or whole pickled model), load differently
@@ -454,16 +452,15 @@ def decode_prompts_with_huggingface(
         logits_processor = QLogitsProcessor(q_model=q_model, beta=beta, temperature=decoding_args.temperature, record_kl=True)
     
     elif q_checkpoint_dir is None and sft_checkpoint_dir is not None:
-        sft_model, sft_tokenizer = load_model_and_tokenizer_for_inference(
+        sft_model, _ = load_model_and_tokenizer_for_inference(
             model_name_or_path=model_name_or_path,
             cache_dir=cache_dir,
             model_kwargs=dict(accelerator=accelerator, flash_attn=flash_attn),
             load_in_4_bits=load_in_4_bits,
             checkpoint_dir=sft_checkpoint_dir,
         )
-        sft_model = accelerator.prepare(sft_model)
     
-        logits_processor = QLogitsProcessor(q_model=sft_model, beta=beta, temperature=decoding_args.temperature, record_kl=True)
+        logits_processor = KLLogitsProcessor(q_model=sft_model, temperature=decoding_args.temperature, record_kl=True)
 
     return_list = decode_prompts_with_huggingface_given_model(
         model=model,
