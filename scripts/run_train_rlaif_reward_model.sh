@@ -2,10 +2,12 @@
 
 output_dir=$1
 run_name=$2
+lr=$3
+gpu=$4
 
 config_file="./examples/accelerate_configs/rlhf_ppo_npp_llama.yaml"
 
-CUDA_VISIBLE_DEVICES=0 accelerate launch --config_file "${config_file}" examples/rlaif_reward_modeling.py \
+CUDA_VISIBLE_DEVICES=${gpu} accelerate launch --config_file "${config_file}" examples/rlaif_reward_modeling.py \
   --output_dir "${output_dir}" \
   --run_name "${run_name}" \
   --num_train_epochs 3 \
@@ -21,10 +23,10 @@ CUDA_VISIBLE_DEVICES=0 accelerate launch --config_file "${config_file}" examples
   --per_device_train_batch_size 1 \
   --per_device_eval_batch_size 1 \
   --gradient_accumulation_steps 128 \
-  --eval_steps 50 \
+  --eval_steps 500 \
   --save_strategy "steps" \
-  --save_steps 50 \
-  --learning_rate 1e-5 \
+  --save_steps 100 \
+  --learning_rate "${lr}" \
   --weight_decay 0.0 \
   --warmup_ratio 0.03 \
   --lr_scheduler_type "cosine" \
