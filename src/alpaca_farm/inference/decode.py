@@ -460,7 +460,7 @@ def decode_prompts_with_huggingface(
             checkpoint_dir=sft_checkpoint_dir,
         )
     
-        logits_processor = KLLogitsProcessor(q_model=sft_model, temperature=decoding_args.temperature, record_kl=True)
+        logits_processor = KLLogitsProcessor(model=sft_model, temperature=decoding_args.temperature, record_kl=True)
 
     return_list = decode_prompts_with_huggingface_given_model(
         model=model,
