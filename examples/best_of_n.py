@@ -197,7 +197,7 @@ def run_decode_augmented(
         )
         
     prompts, list_dict_data = prompts[:max_instances], list_dict_data[:max_instances]
-
+    print('decoding args', decoding_kwargs)
     outputs, avg_kl = decode.decode_prompts_with_huggingface(
         model_name_or_path=decoder_name_or_path,
         prompts=prompts,
