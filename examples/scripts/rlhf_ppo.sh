@@ -33,7 +33,8 @@ CUDA_VISIBLE_DEVICES=4,5,6,7 accelerate launch --config_file "${config_file}" ex
   --save_steps 5 \
   --train_splits "train" \
   --eval_splits "validation" \
-  --query_len 750
+  --query_len 750 \
+  --wandb_project ppo
 
   # --step_per_device_batch_size 2 \
   # --rollout_per_device_batch_size 32 \
