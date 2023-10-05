@@ -71,7 +71,7 @@ if __name__ == "__main__":
     decoding_kwargs = {}
     
     if args.greedy:
-        args.temp = 0.0
+        args.temp = 1.0
         decoding_kwargs = {
             'do_sample': False,
             'num_beams': 1,
