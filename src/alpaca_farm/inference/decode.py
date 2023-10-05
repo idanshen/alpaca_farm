@@ -406,7 +406,7 @@ def decode_prompts_with_huggingface(
         q_model = make_qfunction_with_base_model(Namespace(**decoding_kwargs), q_model, q_tokenizer, accelerator=accelerator)
         # q_model.load_state_dict(torch.load(os.path.join(q_checkpoint_dir, 'adapter_model/q_head.pt'), map_location=q_model.device))
         # TODO (seungwook): depending on the type of q head (weights or whole pickled model), load differently
-        q_model.load_q_head(os.path.join(q_checkpoint_dir, 'adapter_model/q_head.pt'))
+        q_model.load_q_head(os.path.join(q_checkpoint_dir, 'q_head.pt'))
         
         # delete num_q_heads and q_head_type from decoding_kwargs
         decoding_kwargs.pop('num_q_heads', None)
