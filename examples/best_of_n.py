@@ -149,6 +149,8 @@ def run_decode_augmented(
     model_and_tokenizer: Optional[Tuple] = None,
     beta: float = 1.0,
     seed: Optional[int] = None,
+    num_q_heads: Optional[int] = 1,
+    q_head_type: Optional[str] = 'linear',
     **decoding_kwargs,
 ):
     """Decode samples from the policy language model augmented with a q value estimator.
@@ -212,8 +214,8 @@ def run_decode_augmented(
         model_and_tokenizer=model_and_tokenizer,
         seed=seed,
         beta=beta,
-        num_q_heads=decoding_kwargs['num_q_heads'],
-        q_head_type=decoding_kwargs['q_head_type'],
+        num_q_heads=num_q_heads,
+        q_head_type=q_head_type,
     )
 
     sample_mode = sample_mode_formatter.format(temperature=temperature, max_new_tokens=max_new_tokens, seed=seed)
