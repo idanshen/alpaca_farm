@@ -7,6 +7,7 @@ gpu=$3
 CUDA_VISIBLE_DEVICES=$gpu python examples/generate_qmodel.py \
   --decoder_name_or_path huggyllama/llama-7b \
   --decoder_checkpoint_dir $ppo_checkpoint \
+  --sft_checkpoint_dir /data/pulkitag/models/idanshen/shared/models/sft/test_5/ \
   --load_in_4_bits True \
   --temp 1.0 \
   --greedy True \
