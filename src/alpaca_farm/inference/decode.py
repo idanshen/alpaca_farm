@@ -459,6 +459,10 @@ def decode_prompts_with_huggingface(
             load_in_4_bits=load_in_4_bits,
             checkpoint_dir=sft_checkpoint_dir,
         )
+        
+        # delete num_q_heads and q_head_type from decoding_kwargs
+        decoding_kwargs.pop('num_q_heads', None)
+        decoding_kwargs.pop('q_head_type', None)
     
         logits_processor = KLLogitsProcessor(model=sft_model, temperature=decoding_args.temperature, record_kl=True)
 
