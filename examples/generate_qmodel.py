@@ -31,6 +31,8 @@ class Arguments:
         default=1, metadata={"help": "The number of sequences to return from the decoder."})
     temp: float = field(
         default=0.7, metadata={"help": "The temperature to use for decoding."})
+    greedy: bool = field(
+        default=False, metadata={"help": "If True, uses greedy decoding."})
     per_device_batch_size: int = field(
         default=12, metadata={"help": "The batch size to use for decoding."})
     load_in_4_bits: bool = field(
@@ -43,7 +45,6 @@ class Arguments:
         default=False, metadata={"help": "If True, uses bfloat16. If lora and four_bits are True, bfloat16 is used for the lora weights."})
     fp16: bool = field(
         default=False, metadata={"help": "If True, uses float16. "})
-
 
 if __name__ == "__main__":
     # parse arguments
@@ -67,6 +68,17 @@ if __name__ == "__main__":
         log_with=[],
     )
 
+    decoding_kwargs = {}
+    
+    if args.greedy:
+        args.temp = 0.0
+        decoding_kwargs = {
+            'do_sample': False,
+            'num_beams': 1,
+            'top_p': 1.0,
+            'top_k': 0
+        }
+
     if os.path.isfile(args.path_to_result):
         print('Output file already exists, skipping generating data')
     else:
@@ -83,7 +95,8 @@ if __name__ == "__main__":
                                         per_device_batch_size=args.per_device_batch_size, 
                                         load_in_4_bits=args.load_in_4_bits,
                                         flash_attn=args.flash_attn,
-                                        accelerator=accelerator)
+                                        accelerator=accelerator,
+                                        **decoding_kwargs)
             avg_kl = None
         else: 
             list_dict_data, avg_kl = run_decode_augmented(decoder_name_or_path=args.decoder_name_or_path,

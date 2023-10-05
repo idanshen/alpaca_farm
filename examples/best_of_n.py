@@ -47,6 +47,7 @@ def run_decode(
     checkpoint_dir: Optional[str] = None,
     model_and_tokenizer: Optional[Tuple] = None,
     seed: Optional[int] = None,
+    **decoding_kwargs
 ):
     """Decode samples from the policy language model.
 
@@ -98,7 +99,7 @@ def run_decode(
         model_name_or_path=decoder_name_or_path,
         prompts=prompts,
         decoding_args=decode.HFDecodingArguments(
-            temperature=temperature, max_new_tokens=max_new_tokens, num_return_sequences=num_return_sequences
+            temperature=temperature, max_new_tokens=max_new_tokens, num_return_sequences=num_return_sequences, **decoding_kwargs
         ),
         per_device_batch_size=per_device_batch_size,
         accelerator=accelerator,
@@ -199,7 +200,7 @@ def run_decode_augmented(
         model_name_or_path=decoder_name_or_path,
         prompts=prompts,
         decoding_args=decode.HFDecodingArguments(
-            temperature=temperature, max_new_tokens=max_new_tokens,num_return_sequences=num_return_sequences
+            temperature=temperature, max_new_tokens=max_new_tokens,num_return_sequences=num_return_sequences, **decoding_kwargs
         ),
         per_device_batch_size=per_device_batch_size,
         accelerator=accelerator,
