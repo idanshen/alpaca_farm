@@ -15,6 +15,8 @@ class Arguments:
         default="huggyllama/llama-7b", metadata={"help": "Name to a huggingface native pretrained model or path to a model on disk."})
     decoder_checkpoint_dir: str = field(
         default="./", metadata={"help": "Path to a checkpoint directory of the decoder (adapter weights)."})
+    sft_checkpoint_dir: str = field(
+        default='', metadata={"help": "Path to a checkpoint directory of the sft model (adapter weights) -- to use for calculating KL for PPO."})
     q_checkpoint_dir: str = field(
         default='', metadata={"help": "Path to a checkpoint directory of the q model (adapter weights)."})
     num_q_heads: int = field(
@@ -83,11 +85,12 @@ if __name__ == "__main__":
         print('Output file already exists, skipping generating data')
     else:
         print('Start generating data')
-        if args.q_checkpoint_dir == '': #and no multiple lora checkpoints
+        if args.q_checkpoint_dir == '' and args.sft_checkpoint_dir == '': #and no multiple lora checkpoints
             print('No q model checkpoint dir is provided, using the default decoder model')
 
             list_dict_data = run_decode(decoder_name_or_path=args.decoder_name_or_path,
                                         checkpoint_dir=args.decoder_checkpoint_dir,
+                                        sft_checkpoint_dir=args.sft_checkpoint_dir,
                                         dataset_path=args.dataset_path,
                                         dataset_name=args.dataset_name,
                                         num_return_sequences=args.num_return_sequences, 
@@ -98,7 +101,23 @@ if __name__ == "__main__":
                                         accelerator=accelerator,
                                         **decoding_kwargs)
             avg_kl = None
-        else: 
+            
+        elif args.q_checkpoint_dir == '' and args.sft_checkpoint_dir != '':
+            list_dict_data, avg_kl = run_decode_augmented(decoder_name_or_path=args.decoder_name_or_path,
+                                        checkpoint_dir=args.decoder_checkpoint_dir,
+                                        sft_checkpoint_dir=args.sft_checkpoint_dir,
+                                        dataset_path=args.dataset_path,
+                                        dataset_name=args.dataset_name,
+                                        num_return_sequences=args.num_return_sequences, 
+                                        temperature=args.temp, 
+                                        per_device_batch_size=args.per_device_batch_size, 
+                                        load_in_4_bits=args.load_in_4_bits,
+                                        flash_attn=args.flash_attn,
+                                        accelerator=accelerator,
+                                        beta=args.beta,)
+            args.path_to_result = 'kl_{}_'.format(avg_kl) + args.path_to_result if avg_kl is not None else args.path_to_result 
+            
+        elif args.q_checkpoint_dir != '' and args.sft_checkpoint_dir == '':
             list_dict_data, avg_kl = run_decode_augmented(decoder_name_or_path=args.decoder_name_or_path,
                                         checkpoint_dir=args.decoder_checkpoint_dir,
                                         q_checkpoint_dir=args.q_checkpoint_dir,
@@ -114,6 +133,10 @@ if __name__ == "__main__":
                                         num_q_heads=args.num_q_heads,
                                         q_head_type=args.q_head_type,)
             args.path_to_result = 'kl_{}_'.format(avg_kl) + args.path_to_result if avg_kl is not None else args.path_to_result
+        else:
+            raise NotImplementedError('Defining both q and sft checkpoitns are not supported!')
+        else: 
+
             
         print('Saving generated data to {}'.format(args.path_to_result))
         OUTPUT_DIR = './outputs/'

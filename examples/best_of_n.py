@@ -145,6 +145,7 @@ def run_decode_augmented(
     load_in_4_bits=False,
     checkpoint_dir: Optional[str] = None,
     q_checkpoint_dir: Optional[str] = None,
+    sft_checkpoint_dir: Optional[str] = None,
     flash_attn = False,
     model_and_tokenizer: Optional[Tuple] = None,
     beta: float = 1.0,
@@ -197,7 +198,7 @@ def run_decode_augmented(
         )
         
     prompts, list_dict_data = prompts[:max_instances], list_dict_data[:max_instances]
-    print('decoding args', decoding_kwargs)
+
     outputs, avg_kl = decode.decode_prompts_with_huggingface(
         model_name_or_path=decoder_name_or_path,
         prompts=prompts,
@@ -210,6 +211,7 @@ def run_decode_augmented(
         load_in_4_bits=load_in_4_bits,
         checkpoint_dir=checkpoint_dir,
         q_checkpoint_dir=q_checkpoint_dir,
+        sft_checkpoint_dir=sft_checkpoint_dir,
         flash_attn=flash_attn,
         model_and_tokenizer=model_and_tokenizer,
         seed=seed,
