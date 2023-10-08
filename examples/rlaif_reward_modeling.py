@@ -43,7 +43,7 @@ class ModelArguments:
 class DataArguments:
     dataset_path: str = field(default='openai/summarize_from_feedback',
                               metadata={"help": "Name of dataset (for identifier and preprocessing purposes)."})
-    train_data_filpeath: str = field(default="./rlaif_results/rlaif_gpt-3.5-turbo-instruct_openai/summarize_from_feedback_data_train1.json")
+    train_data_filpeath: str = field(default="./rlaif_results/rlaif_gpt-3.5-turbo-instruct_openai/summarize_from_feedback_data_train.json")
     validation_data_filepath: str = field(default="./rlaif_results/rlaif_gpt-3.5-turbo-instruct_openai/summarize_from_feedback_data_validation.json")
     prompt_dict_path: str = field(
         default=pathlib.Path(__file__).parent / "prompts" / "v0_inputs_noinputs.json",
