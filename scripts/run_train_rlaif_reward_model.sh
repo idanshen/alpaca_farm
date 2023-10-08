@@ -17,7 +17,6 @@ CUDA_VISIBLE_DEVICES=${gpu} accelerate launch --config_file "${config_file}" exa
   --model_name_or_path "huggyllama/llama-7b" \
   --pretrained_lora_weights "/data/pulkitag/models/idanshen/shared/models/sft/test_5/" \
   --dataset_path openai/summarize_from_feedback \
-  --output_dir llama7b_rm_rlaif_openai_summarize_from_feedback \
   --model_max_length 2048 \
   --num_train_epochs 3 \
   --per_device_train_batch_size 1 \

@@ -204,7 +204,7 @@ def main():
     os.makedirs(data_args.results_dir, exist_ok=True)
 
     # load and split data
-    dataset = load_dataset(data_args.dataset_path, data_args.dataset_name, split='train')
+    dataset = load_dataset(data_args.dataset_path, data_args.dataset_name, split=data_args.partition)
     val_indices = get_val_indices(dataset, data_args.eval_ratio)
     
     # evaluate

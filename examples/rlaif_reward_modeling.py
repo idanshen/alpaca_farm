@@ -183,7 +183,7 @@ def main():
         model=model,
         tokenizer=tokenizer,
         args=training_args,
-        compute_metrics=compute_soft_preference_reward_modeling_metrics,
+        # compute_metrics=compute_soft_preference_reward_modeling_metrics,
         **data_module,
     )
 
