@@ -258,9 +258,9 @@ def preprocess_for_soft_preference_reward_modeling(
     df: pd.DataFrame,
     prompt_dict: dict,
     tokenizer: transformers.PreTrainedTokenizer,
+    llm_label_type: str,
     df_postprocessor: Optional[Callable] = None,
     end_sequence_with_eos: bool = False,
-    preferred_seq: bool = True,
     verbose=True,
 ) -> dict[str, torch.Tensor]:
     
@@ -274,10 +274,18 @@ def preprocess_for_soft_preference_reward_modeling(
 
     choice = torch.tensor([[_get_numeric_preference(dict_data)] for dict_data in list_dict_data])
 
+    if llm_label_type == 'preferred':
+        llm_choice_fn = lambda x: np.argmax(x)
+    elif llm_label_type == 'first':
+        llm_choice_fn = lambda x: 0
+    elif llm_label_type == 'second':
+        llm_choice_fn = lambda x: 1
+    else:
+        raise NotImplementedError(f'{llm_choice_fn} llm label type not implemented.')
     # TODO (seungwook): currently hard-coded for summary, may have to fix for other datasets
     def _get_text(example: dict):
         source = format_prompt({'instruction': INSTRUCTIONS[dataset_path], 'input': example['text']}, prompt_dict=prompt_dict)
-        llm_choice = np.argmax(example['llm_label']) if preferred_seq else np.argmin(example['llm_label'])
+        llm_choice = llm_choice_fn(example['llm_label'])
 
         target = format_output(
             example,
@@ -289,11 +297,11 @@ def preprocess_for_soft_preference_reward_modeling(
     text_list = [_get_text(dict_data) for dict_data in list_dict_data]
 
     def _get_labels(example: dict):
-        if isinstance(example['llm_label'], str):
-            # split string 
-            return [float(l) for l in example['llm_label'].strip('][').split(' ')]
-        elif isinstance(example['llm_label'], list):
-            return example['llm_label']
+        # if preferred, then sort the llm label descending
+        if llm_label_type == 'preferred':
+            return sorted(example['llm_label'], reverse=True)
+        else:
+            return example(['llm_label'])
 
     labels = torch.tensor([_get_labels(dict_data) for dict_data in list_dict_data])
 
@@ -467,9 +475,9 @@ class SoftPreferenceRewardModelingDataset(Dataset):
         df: pd.DataFrame,
         prompt_dict: dict,
         tokenizer: transformers.PreTrainedTokenizer,
+        llm_label_type: str,
         df_postprocessor: Optional[Callable] = None,
         end_sequence_with_eos: bool = False,
-        preferred_seq: bool = True,
     ):
         super(SoftPreferenceRewardModelingDataset, self).__init__()
         # TODO (seungwook): fix preprocessing
@@ -480,7 +488,7 @@ class SoftPreferenceRewardModelingDataset(Dataset):
             tokenizer=tokenizer,
             df_postprocessor=df_postprocessor,
             end_sequence_with_eos=end_sequence_with_eos,
-            preferred_seq=preferred_seq
+            llm_label_type=llm_label_type
         )
         self.input_ids = data_dict["input_ids"]
         self.labels = data_dict["labels"]

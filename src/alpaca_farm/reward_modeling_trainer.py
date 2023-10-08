@@ -162,8 +162,6 @@ class SoftPreferenceTrainer(transformers.Trainer):
                 )
             )
 
-            
-
             self.log(output.metrics)
 
             self.control = self.callback_handler.on_evaluate(self.args, self.state, self.control, output.metrics)
@@ -192,15 +190,13 @@ def compute_soft_preference_reward_modeling_metrics(eval_prediction1: EvalPredic
     true_positive_rate = (predictions * labels).float().sum().item() / labels.sum().item()
     false_positive_rate = (predictions * (1 - labels)).float().sum().item() / (1 - labels).sum().item()
 
-    # llm preferences -- currently not available for validation dataset
-    # llm_labels = torch.tensor(eval_prediction.label_ids[0]).squeeze(-1)
-    # llm_labels = llm_labels.argmax(dim=-1).long()
-    # llm_predictions = logits.argmax(dim=-1).long()
-    # llm_accuracy = llm_predictions.eq(llm_labels).float().mean().item()
-    # llm_label_positive_rate = (llm_labels == 1).float().mean().item()
-    # llm_positive_rate = (llm_predictions == 1).float().mean().item()
-    # llm_true_positive_rate = (llm_predictions * llm_labels).float().sum().item() / llm_labels.sum().item()
-    # llm_false_positive_rate = (llm_predictions * (1 - llm_labels)).float().sum().item() / (1 - llm_labels).sum().item()
+    llm_labels = torch.tensor(eval_prediction1.label_ids[0]).squeeze(-1)
+    llm_labels = llm_labels.argmax(dim=-1).long()
+    llm_accuracy = predictions.eq(llm_labels).float().mean().item()
+    llm_label_positive_rate = (llm_labels == 1).float().mean().item()
+    llm_positive_rate = (predictions == 1).float().mean().item()
+    llm_true_positive_rate = (predictions * llm_labels).float().sum().item() / llm_labels.sum().item()
+    llm_false_positive_rate = (predictions * (1 - llm_labels)).float().sum().item() / (1 - llm_labels).sum().item()
 
     return dict(
         accuracy=accuracy,
@@ -208,9 +204,9 @@ def compute_soft_preference_reward_modeling_metrics(eval_prediction1: EvalPredic
         positive_rate=positive_rate,
         true_positive_rate=true_positive_rate,
         false_positive_rate=false_positive_rate,
-        # llm_accuracy=llm_accuracy,
-        # llm_label_positive_rate=llm_label_positive_rate,
-        # llm_positive_rate=llm_positive_rate,
-        # llm_true_positive_rate=llm_true_positive_rate,
-        # llm_false_positive_rate=llm_false_positive_rate,
+        llm_accuracy=llm_accuracy,
+        llm_label_positive_rate=llm_label_positive_rate,
+        llm_positive_rate=llm_positive_rate,
+        llm_true_positive_rate=llm_true_positive_rate,
+        llm_false_positive_rate=llm_false_positive_rate,
     )

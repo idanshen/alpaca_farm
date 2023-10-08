@@ -117,6 +117,7 @@ def make_soft_preference_reward_modeling_data_module(
         df=train_df,
         prompt_dict=prompt_dict,
         tokenizer=tokenizer,
+        llm_label_type='preferred',
         end_sequence_with_eos=training_args.end_sequence_with_eos,
     )
 
@@ -128,6 +129,7 @@ def make_soft_preference_reward_modeling_data_module(
         df=eval_df,
         prompt_dict=prompt_dict,
         tokenizer=tokenizer,
+        llm_label_type='first',
         end_sequence_with_eos=training_args.end_sequence_with_eos,
     )
 
@@ -137,6 +139,7 @@ def make_soft_preference_reward_modeling_data_module(
         df=eval_df,
         prompt_dict=prompt_dict,
         tokenizer=tokenizer,
+        llm_label_type='second',
         end_sequence_with_eos=training_args.end_sequence_with_eos,
     )
 
