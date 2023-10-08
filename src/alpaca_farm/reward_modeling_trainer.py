@@ -12,13 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict
+from typing import Dict, Optional, List
+import time
+import math
 
 import einops
 import torch
 import torch.nn.functional as F
+from torch.utils.data import Dataset
 import transformers
 from transformers.trainer_utils import EvalPrediction
+from transformers.trainer_utils import speed_metrics
 
 from alpaca_farm import common, torch_ops
 
@@ -81,11 +85,106 @@ class SoftPreferenceTrainer(transformers.Trainer):
         
         return (loss, dict(logits=logits)) if return_outputs else loss
 
-def compute_soft_preference_reward_modeling_metrics(eval_prediction: EvalPrediction) -> Dict:
+    def evaluate(
+        self,
+        eval_dataset: Optional[List[Dataset]] = None,
+        ignore_keys: Optional[List[str]] = None,
+        metric_key_prefix: str = "eval",
+    ) -> Dict[str, float]:
+        """
+        Run evaluation and returns metrics.
+
+        The calling script will be responsible for providing a method to compute metrics, as they are task-dependent
+        (pass it to the init `compute_metrics` argument).
+
+        You can also subclass and override this method to inject custom behavior.
+
+        Args:
+            eval_dataset (`Dataset`, *optional*):
+                Pass a dataset if you wish to override `self.eval_dataset`. If it is a [`~datasets.Dataset`], columns
+                not accepted by the `model.forward()` method are automatically removed. It must implement the `__len__`
+                method.
+            ignore_keys (`List[str]`, *optional*):
+                A list of keys in the output of your model (if it is a dictionary) that should be ignored when
+                gathering predictions.
+            metric_key_prefix (`str`, *optional*, defaults to `"eval"`):
+                An optional prefix to be used as the metrics key prefix. For example the metrics "bleu" will be named
+                "eval_bleu" if the prefix is "eval" (default)
+
+        Returns:
+            A dictionary containing the evaluation loss and the potential metrics computed from the predictions. The
+            dictionary also contains the epoch number which comes from the training state.
+        """
+        # if eval dataset is torch dataset, then just run super method
+        if hasattr(self, 'eval_datasets') and isinstance(self.eval_datasets, list):
+            # memory metrics - must set up as early as possible
+            self._memory_tracker.start()
+
+            start_time = time.time()
+            outputs = []
+            for eval_dataset in self.eval_datasets:
+                eval_dataloader = self.get_eval_dataloader(eval_dataset)
+                eval_loop = self.prediction_loop if self.args.use_legacy_prediction_loop else self.evaluation_loop
+                output = eval_loop(
+                    eval_dataloader,
+                    description="Evaluation",
+                    # No point gathering the predictions if there are no metrics, otherwise we defer to
+                    # self.args.prediction_loss_only
+                    prediction_loss_only=True if self.compute_metrics is None else None,
+                    ignore_keys=ignore_keys,
+                    metric_key_prefix=metric_key_prefix,
+                )
+
+                total_batch_size = self.args.eval_batch_size * self.args.world_size
+                if f"{metric_key_prefix}_jit_compilation_time" in output.metrics:
+                    start_time += output.metrics[f"{metric_key_prefix}_jit_compilation_time"]
+                output.metrics.update(
+                    speed_metrics(
+                        metric_key_prefix,
+                        start_time,
+                        num_samples=output.num_samples,
+                        num_steps=math.ceil(output.num_samples / total_batch_size),
+                    )
+                )
+
+                outputs.append(output)
+            
+            # compute metrics on both outputs
+            output.metrics = compute_soft_preference_reward_modeling_metrics(outputs[0], outputs[1])
+
+            # update runtime metrics
+            output.metrics.update(
+                speed_metrics(
+                    metric_key_prefix,
+                    start_time,
+                    num_samples=sum(output.num_samples for output in outputs),
+                    num_steps=math.ceil(sum(output.num_samples for output in outputs) / total_batch_size),
+                )
+            )
+
+            
+
+            self.log(output.metrics)
+
+            self.control = self.callback_handler.on_evaluate(self.args, self.state, self.control, output.metrics)
+
+            self._memory_tracker.stop_and_update_metrics(output.metrics)
+
+            return output.metrics
+        else:
+            return super().evaluate(eval_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix)
+
+
+def compute_soft_preference_reward_modeling_metrics(eval_prediction1: EvalPrediction, eval_prediction2) -> Dict:
     # eval_prediction.label_ids is a tuple that matches up with `training_args.label_names`.
     # human preferences
-    logits = torch.tensor(eval_prediction.predictions).squeeze(-1)
-    labels = torch.tensor(eval_prediction.label_ids[-1]).squeeze(-1)
+    assert (torch.tensor(eval_prediction1.label_ids[-1]) == torch.tensor(eval_prediction2.label_ids[-1])).all()
+
+    logits1 = torch.tensor(eval_prediction1.predictions[:, 0]).squeeze(-1)
+    logits2 = torch.tensor(eval_prediction2.predictions[:, 0]).squeeze(-1)
+    logits = torch.stack([logits1, logits2], dim=-1)
+    labels = torch.tensor(eval_prediction1.label_ids[-1]).squeeze(-1) # choice
+    
     predictions = logits.argmax(dim=-1).long()
     accuracy = predictions.eq(labels).float().mean().item()
     label_positive_rate = (labels == 1).float().mean().item()

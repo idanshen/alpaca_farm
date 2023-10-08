@@ -260,6 +260,7 @@ def preprocess_for_soft_preference_reward_modeling(
     tokenizer: transformers.PreTrainedTokenizer,
     df_postprocessor: Optional[Callable] = None,
     end_sequence_with_eos: bool = False,
+    preferred_seq: bool = True,
     verbose=True,
 ) -> dict[str, torch.Tensor]:
     
@@ -276,10 +277,12 @@ def preprocess_for_soft_preference_reward_modeling(
     # TODO (seungwook): currently hard-coded for summary, may have to fix for other datasets
     def _get_text(example: dict):
         source = format_prompt({'instruction': INSTRUCTIONS[dataset_path], 'input': example['text']}, prompt_dict=prompt_dict)
+        llm_choice = np.argmax(example['llm_label']) if preferred_seq else np.argmin(example['llm_label'])
+
         target = format_output(
             example,
             eos_token=tokenizer.eos_token if end_sequence_with_eos else None,
-            output_key="summary1" if example['choice'] == 0 else "summary2",
+            output_key="summary1" if llm_choice == 0 else "summary2",
         )
         return source + target
 
@@ -466,6 +469,7 @@ class SoftPreferenceRewardModelingDataset(Dataset):
         tokenizer: transformers.PreTrainedTokenizer,
         df_postprocessor: Optional[Callable] = None,
         end_sequence_with_eos: bool = False,
+        preferred_seq: bool = True,
     ):
         super(SoftPreferenceRewardModelingDataset, self).__init__()
         # TODO (seungwook): fix preprocessing
@@ -476,6 +480,7 @@ class SoftPreferenceRewardModelingDataset(Dataset):
             tokenizer=tokenizer,
             df_postprocessor=df_postprocessor,
             end_sequence_with_eos=end_sequence_with_eos,
+            preferred_seq=preferred_seq
         )
         self.input_ids = data_dict["input_ids"]
         self.labels = data_dict["labels"]
