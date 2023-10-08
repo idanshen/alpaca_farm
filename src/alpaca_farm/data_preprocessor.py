@@ -301,7 +301,7 @@ def preprocess_for_soft_preference_reward_modeling(
         if llm_label_type == 'preferred':
             return sorted(example['llm_label'], reverse=True)
         else:
-            return example(['llm_label'])
+            return example['llm_label']
 
     labels = torch.tensor([_get_labels(dict_data) for dict_data in list_dict_data])
 
