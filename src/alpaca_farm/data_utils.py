@@ -143,7 +143,6 @@ def make_soft_preference_reward_modeling_data_module(
         end_sequence_with_eos=training_args.end_sequence_with_eos,
     )
 
-
     data_collator = DataCollatorForSoftPreferenceRewardModelingDataset(tokenizer=tokenizer)
     return dict(train_dataset=train_dataset, eval_dataset=[eval_dataset1, eval_dataset2], data_collator=data_collator)
 
