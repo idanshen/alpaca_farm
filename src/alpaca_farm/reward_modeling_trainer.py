@@ -130,7 +130,7 @@ class SoftPreferenceTrainer(transformers.Trainer):
                     description="Evaluation",
                     # No point gathering the predictions if there are no metrics, otherwise we defer to
                     # self.args.prediction_loss_only
-                    prediction_loss_only=True if self.compute_metrics is None else None,
+                    prediction_loss_only=False,
                     ignore_keys=ignore_keys,
                     metric_key_prefix=metric_key_prefix,
                 )
