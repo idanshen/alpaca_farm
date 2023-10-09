@@ -150,10 +150,10 @@ class SoftPreferenceTrainer(transformers.Trainer):
                 outputs.append(output)
             
             # compute metrics on both outputs
-            output.metrics = compute_soft_preference_reward_modeling_metrics(outputs[0], outputs[1])
+            metrics = compute_soft_preference_reward_modeling_metrics(outputs[0], outputs[1])
 
             # update runtime metrics
-            output.metrics.update(
+            metrics.update(
                 speed_metrics(
                     metric_key_prefix,
                     start_time,
@@ -162,13 +162,13 @@ class SoftPreferenceTrainer(transformers.Trainer):
                 )
             )
 
-            self.log(output.metrics)
+            self.log(metrics)
 
-            self.control = self.callback_handler.on_evaluate(self.args, self.state, self.control, output.metrics)
+            self.control = self.callback_handler.on_evaluate(self.args, self.state, self.control, metrics)
 
-            self._memory_tracker.stop_and_update_metrics(output.metrics)
+            self._memory_tracker.stop_and_update_metrics(metrics)
 
-            return output.metrics
+            return metrics
         else:
             return super().evaluate(eval_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix)
 
