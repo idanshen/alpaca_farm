@@ -116,7 +116,7 @@ class SoftPreferenceTrainer(transformers.Trainer):
             dictionary also contains the epoch number which comes from the training state.
         """
         # if eval dataset is torch dataset, then just run super method
-        if hasattr(self, 'eval_datasets') and isinstance(self.eval_datasets, list):
+        if isinstance(self.eval_dataset, list):
             # memory metrics - must set up as early as possible
             self._memory_tracker.start()
 
@@ -138,14 +138,14 @@ class SoftPreferenceTrainer(transformers.Trainer):
                 total_batch_size = self.args.eval_batch_size * self.args.world_size
                 if f"{metric_key_prefix}_jit_compilation_time" in output.metrics:
                     start_time += output.metrics[f"{metric_key_prefix}_jit_compilation_time"]
-                output.metrics.update(
-                    speed_metrics(
-                        metric_key_prefix,
-                        start_time,
-                        num_samples=output.num_samples,
-                        num_steps=math.ceil(output.num_samples / total_batch_size),
-                    )
-                )
+                # output.metrics.update(
+                #     speed_metrics(
+                #         metric_key_prefix,
+                #         start_time,
+                #         num_samples=output.num_samples,
+                #         num_steps=math.ceil(output.num_samples / total_batch_size),
+                #     )
+                # )
 
                 outputs.append(output)
             
