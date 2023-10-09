@@ -78,7 +78,7 @@ if __name__ == "__main__":
             'do_sample': False,
             'num_beams': 1,
             'top_p': 1.0,
-            'top_k': 0
+            'top_k': 1,
         }
 
     if os.path.isfile(args.path_to_result):
