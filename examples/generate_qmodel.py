@@ -90,7 +90,6 @@ if __name__ == "__main__":
 
             list_dict_data = run_decode(decoder_name_or_path=args.decoder_name_or_path,
                                         checkpoint_dir=args.decoder_checkpoint_dir,
-                                        sft_checkpoint_dir=args.sft_checkpoint_dir,
                                         dataset_path=args.dataset_path,
                                         dataset_name=args.dataset_name,
                                         num_return_sequences=args.num_return_sequences, 
