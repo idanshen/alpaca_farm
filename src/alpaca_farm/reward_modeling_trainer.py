@@ -122,8 +122,8 @@ class SoftPreferenceTrainer(transformers.Trainer):
 
             start_time = time.time()
             outputs = []
-            for eval_dataset in self.eval_datasets:
-                eval_dataloader = self.get_eval_dataloader(eval_dataset)
+            for ds in self.eval_dataset:
+                eval_dataloader = self.get_eval_dataloader(ds)
                 eval_loop = self.prediction_loop if self.args.use_legacy_prediction_loop else self.evaluation_loop
                 output = eval_loop(
                     eval_dataloader,
