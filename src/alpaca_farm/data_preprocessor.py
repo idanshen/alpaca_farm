@@ -657,6 +657,7 @@ class DataCollatorForSoftPreferenceRewardModelingDataset(object):
         # if both samples are concatenated into one input, then we need to split them up and concatenate all together
         if instances[0]['both_samples']:
             labels = torch.cat([instance['labels'] for instance in instances], dim=0)
+            choice = torch.stack([instance['choice'] for instance in instances], dim=0)
         else:
             labels, choice = tuple(torch.stack([instance[key] for instance in instances]) for key in ("labels", "choice"))
         input_ids = self._left_pad_helper(instances, "input_ids", instances[0]['both_samples'])
