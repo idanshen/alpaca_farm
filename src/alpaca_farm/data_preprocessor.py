@@ -15,6 +15,7 @@
 import copy
 import dataclasses
 from typing import Callable, Dict, Optional, Sequence, Union, List
+import itertools
 
 import einops
 import pandas as pd
@@ -297,18 +298,18 @@ def preprocess_for_soft_preference_reward_modeling_both(
 
     labels1 = torch.tensor([_get_labels(dict_data, 0) for dict_data in list_dict_data])
     labels2 = torch.tensor([_get_labels(dict_data, 1) for dict_data in list_dict_data])
-    labels = torch.cat([labels1, labels2], dim=0)
+    labels = torch.stack([labels1, labels2], dim=0)
 
     logger.warning(f"Tokenizing {len(list_dict_data)} samples...")
     tokenized1 = _tokenize_fn(text_list1, tokenizer)
     tokenized2 = _tokenize_fn(text_list2, tokenizer)
     # "size" (bsz, seq_len)
-    input_ids = tokenized1['input_ids'] + tokenized2['input_ids']
+    input_ids = [tokenized1['input_ids'], tokenized2['input_ids']]
     tokenization_metadata = tokenized1['tokenization_metadata']
 
     packaged_data = dict(
-        input_ids=input_ids,
-        labels=labels,
+        input_ids=input_ids, # [input_ids1, input_ids2]
+        labels=labels, # (2, label_size)
         choice=choice,
         tokenization_metadata=tokenization_metadata,
         metadata=dict(mean_choice=choice.float().mean().item()),
@@ -579,7 +580,7 @@ class SoftPreferenceRewardModelingDataset(Dataset):
 
     def __getitem__(self, i) -> Dict[str, Tensor]:
         return dict(
-            input_ids=self.input_ids[i],
+            input_ids=self.input_ids[i] if not self.both_samples else [self.input_ids[0][i], self.input_ids[1][i]]
             labels=self.labels[i],
             choice=self.choice[i],
             both_samples=self.both_samples,
@@ -636,10 +637,14 @@ class DataCollatorForSoftPreferenceRewardModelingDataset(object):
 
     tokenizer: transformers.PreTrainedTokenizer
 
-    def _left_pad_helper(self, instances: Sequence[dict], key: str):
+    def _left_pad_helper(self, instances: Sequence[dict], key: str, both_samples: bool=False):
         # TODO(lxuechen): Potentially replace with `transformers.PretrainedTokenizerBase.prepare_for_model`.
         # `instances` is a list of dicts, each dict has key whose value is a list of tensors, possibly of unequal length.
         input_ids = [instance[key] for instance in instances]
+        # flatten out nested lists in input_ids
+        if both_samples:
+            input_ids = [seq for sublist in input_ids for seq in sublist]
+
         input_ids = torch_ops.pad_sequence_from_left(
             input_ids,
             batch_first=True,
@@ -653,7 +658,7 @@ class DataCollatorForSoftPreferenceRewardModelingDataset(object):
             labels = torch.cat([instance['labels'] for instance in instances], dim=0)
         else:
             labels, choice = tuple(torch.stack([instance[key] for instance in instances]) for key in ("labels", "choice"))
-        input_ids = self._left_pad_helper(instances, "input_ids")
+        input_ids = self._left_pad_helper(instances, "input_ids", instances[0]['both_samples'])
         attention_mask = input_ids.ne(self.tokenizer.pad_token_id).long()
 
         return dict(
