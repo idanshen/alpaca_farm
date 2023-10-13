@@ -30,6 +30,7 @@ from .types import Tensor
 logger = logging.get_logger(__name__)
 INSTRUCTIONS = {
     'argilla/news-summary': "Generate a one-sentence summary of this post.",
+    'seahorse_data': "Generate a one-sentence summary of this post.",
 }
 
 
@@ -481,6 +482,72 @@ class DataCollatorForBinaryRewardModelingDataset(object):
             index_1=index_1,
             choice=choice,
         )
+
+
+class ClassificationRewardModelingDataset(Dataset):
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        prompt_dict: dict,
+        tokenizer: transformers.PreTrainedTokenizer,
+        df_postprocessor: Optional[Callable] = None,
+        end_sequence_with_eos: bool = False,
+        classification_label_key: str = 'label',
+    ):
+        super(ClassificationRewardModelingDataset, self).__init__()
+        if df_postprocessor is not None:
+            df = df_postprocessor(df)
+
+        list_dict_data = df.to_dict(orient="records")
+
+        indices_to_remove = []
+        for i, dict_data in enumerate(list_dict_data):
+            if dict_data['text'] is None:
+                indices_to_remove.append(i)
+        for index in sorted(indices_to_remove, reverse=True):
+            del list_dict_data[index]
+
+        labels = torch.tensor([[dict_data[classification_label_key]] for dict_data in list_dict_data])
+
+        def _get_text(example: dict, output_key: str):
+            example['instruction'] = INSTRUCTIONS['seahorse_data']
+            example['input'] = example['text']
+            source = format_prompt(example, prompt_dict=prompt_dict)
+            target = format_output(
+                example,
+                eos_token=tokenizer.eos_token if end_sequence_with_eos else None,
+                output_key=output_key,
+            )
+            return source + ' ' + target
+
+        text_list = [_get_text(dict_data, 'summary') for dict_data in list_dict_data]
+
+        logger.warning(f"Tokenizing {len(list_dict_data)} prompts...")
+        input_ids = _tokenize_fn(text_list, tokenizer)
+
+        self.input_ids = input_ids['input_ids']
+        self.tokenization_metadata = input_ids['tokenization_metadata']
+        self.labels = labels
+
+    def __len__(self):
+        return len(self.input_ids)
+
+    def __getitem__(self, i) -> Dict[str, Tensor]:
+        return dict(
+            input_ids=self.input_ids[i],
+            labels=self.labels[i],
+        )
+
+
+@dataclasses.dataclass
+class DataCollatorForClassificationRewardModelingDataset(object):
+    def __init__(self, tokenizer: transformers.PreTrainedTokenizer):
+        self.tokenizer = tokenizer
+
+    def __call__(self, instances: Sequence[Dict]) -> Dict[str, Tensor]:
+        return_dict = {key: torch.stack([instance[key] for instance in instances]) for key in instances[0].keys()}
+        return_dict['attention_mask'] = return_dict['input_ids'].ne(self.tokenizer.pad_token_id).long()
+        return return_dict
 
 class SummaryQueryDataset(Dataset):
     """News/Reddit summarization dataset that emits tokenized left-padded queries"""
