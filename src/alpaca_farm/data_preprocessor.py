@@ -309,8 +309,8 @@ def preprocess_for_soft_preference_reward_modeling_both(
     tokenization_metadata = tokenized1['tokenization_metadata']
 
     packaged_data = dict(
-        input_ids=input_ids, # [input_ids1, input_ids2]
-        labels=labels, # (2, label_size)
+        input_ids=input_ids, # dataset_size * [input_ids1, input_ids2]
+        labels=labels, # (2, dataset_size, label_size)
         choice=choice,
         tokenization_metadata=tokenization_metadata,
         metadata=dict(mean_choice=choice.float().mean().item()),
@@ -582,7 +582,7 @@ class SoftPreferenceRewardModelingDataset(Dataset):
     def __getitem__(self, i) -> Dict[str, Tensor]:
         return dict(
             input_ids=self.input_ids[i] if not self.both_samples else [self.input_ids[0][i], self.input_ids[1][i]],
-            labels=self.labels[i] if not self.both_samples else torch.tensor([self.labels[0, i], self.labels[1, i]]),
+            labels=self.labels[i] if not self.both_samples else torch.stack([self.labels[0, i], self.labels[1, i]], dim=0),
             choice=self.choice[i],
             both_samples=self.both_samples,
         )
