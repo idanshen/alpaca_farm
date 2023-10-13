@@ -265,7 +265,7 @@ class Qfunction(nn.Module, abc.ABC):
 
 
 class AutoregressiveQfunction(Qfunction):
-    def forward(self, queries: Tensor, query_attn_masks: Optional[Tensor] = None, responses: Optional[Tensor] = None, only_last: bool = False) -> Dict[str, Tensor]:
+    def forward(self, queries: Tensor, query_attn_masks: Optional[Tensor] = None, responses: Optional[Tensor] = None, only_last: bool = False, use_cache: bool = False, past_key_values: Tensor = None) -> Dict[str, Tensor]:
         if responses is not None:
             sequences = torch.cat([queries, responses], dim=1)
         else:
@@ -276,12 +276,15 @@ class AutoregressiveQfunction(Qfunction):
         inputs = self.base_model.prepare_inputs_for_generation(
             input_ids=sequences,
             attention_mask=sequence_attn_masks,
-            use_cache=False,
+            use_cache=use_cache,
+            past_key_values=past_key_values,
         )
         outputs = self.base_model.model(**inputs, output_hidden_states=True)
 
         # get the hidden state of the last layer
-        if only_last:
+        if use_cache and past_key_values is not None:
+            last_hidden_state = outputs.hidden_states[-1].squeeze(1)
+        elif only_last:
             last_hidden_state = outputs.hidden_states[-1][:, - 1 :,:].squeeze(1)
         else:
             last_hidden_state = outputs.hidden_states[-1][:, queries.size(1) - 1 : -1,:]
@@ -296,7 +299,10 @@ class AutoregressiveQfunction(Qfunction):
                 h_features = self.q_head(last_hidden_state)  # from B x L x H to B x L x H'
                 t_features = self.token_features  # T x H'
                 qvalues = h_features @ t_features.T  # B x L x T
-        return dict(qvalues=qvalues)
+        if use_cache:
+            return dict(qvalues=qvalues, past_key_values=outputs.past_key_values)
+        else:
+            return dict(qvalues=qvalues)
 
 
 def make_policy_with_base_model(

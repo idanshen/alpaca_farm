@@ -36,7 +36,8 @@ from .data_preprocessor import (
     QueryResponseDataset,
     SFTDataset,
     split_train_into_train_and_eval,
-    format_prompt, OutputValuesDataset,
+    format_prompt, OutputValuesDataset, DataCollatorForClassificationRewardModelingDataset,
+    ClassificationRewardModelingDataset,
 )
 
 logger = logging.get_logger(__name__)
@@ -102,6 +103,37 @@ def make_binary_reward_modeling_data_module(
     )
     data_collator = DataCollatorForBinaryRewardModelingDataset(tokenizer=tokenizer)
     return dict(train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator)
+
+def make_classification_reward_modeling_data_module(
+    tokenizer: transformers.PreTrainedTokenizer,
+    data_args,
+    training_args,
+):
+    prompt_dict = utils.jload(data_args.prompt_dict_path)
+    data_files = {"train": "train.json", "validation": "validation.json"}
+    dataset_json = datasets.load_dataset(data_args.dataset_path, data_files=data_files)
+
+    train_dataset = ClassificationRewardModelingDataset(
+        df=pd.DataFrame(dataset_json["train"]),
+        prompt_dict=prompt_dict,
+        tokenizer=tokenizer,
+        end_sequence_with_eos=training_args.end_sequence_with_eos,
+        classification_label_key=data_args.classification_label_key,
+    )
+
+    eval_dataset = ClassificationRewardModelingDataset(
+        df=pd.DataFrame(dataset_json["validation"]),
+        prompt_dict=prompt_dict,
+        tokenizer=tokenizer,
+        end_sequence_with_eos=training_args.end_sequence_with_eos,
+        classification_label_key=data_args.classification_label_key,
+    )
+
+    data_collator = DataCollatorForClassificationRewardModelingDataset(tokenizer=tokenizer)
+    return dict(train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator)
+
+
+
 
 def make_soft_preference_reward_modeling_data_module(
     tokenizer: transformers.PreTrainedTokenizer,
