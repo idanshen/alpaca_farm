@@ -190,4 +190,7 @@ fqe_cql/
 fqe_td_zero/
 fve/
 fqe_10_epochs/
+fqe_tristan/
+q_*
 fve_norm_10/
+checkpoint*
