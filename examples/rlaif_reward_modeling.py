@@ -73,6 +73,15 @@ class TrainingArguments(transformers.TrainingArguments):
             "`train_dataloader` (see `_remove_unused_columns`). "
         },
     )
+    remove_unused_columns: bool = field(
+        default=False,
+        metadata={
+            "help": "Whether to remove columns not required by the model when creating the `train_dataloader`. "
+            "By default, the trainer throws away columns it doesn't recognize when creating the "
+            "`train_dataloader` (see `_remove_unused_columns`). "
+            "Set this to False to use the exact same training examples as in the original paper."
+        }, 
+    )
     padding: Literal["max_length", "longest"] = field(
         default="longest",
         metadata={
@@ -120,9 +129,7 @@ class TrainingArguments(transformers.TrainingArguments):
     pretrained_lora_weights: str = field(default=None, metadata={"help": "Path to pretrained LoRA weights."})
 
 
-def main():
-    parser = transformers.HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
-    model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+def main(model_args, data_args, training_args):
     os.environ["WANDB_PROJECT"] = training_args.wandb_project
 
     # set seed for determniistic training
@@ -198,4 +205,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = transformers.HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
+    model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    main(model_args, data_args, training_args)
