@@ -580,7 +580,7 @@ class SoftPreferenceRewardModelingDataset(Dataset):
 
     def __getitem__(self, i) -> Dict[str, Tensor]:
         return dict(
-            input_ids=self.input_ids[i] if not self.both_samples else [self.input_ids[0][i], self.input_ids[1][i]]
+            input_ids=self.input_ids[i] if not self.both_samples else [self.input_ids[0][i], self.input_ids[1][i]],
             labels=self.labels[i],
             choice=self.choice[i],
             both_samples=self.both_samples,
