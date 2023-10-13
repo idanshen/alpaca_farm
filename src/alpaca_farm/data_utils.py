@@ -23,7 +23,9 @@ from alpaca_farm.utils import jload, jdump
 from . import logging, utils
 from .data_postprocessor import RewardConditioningPromptPostprocessor
 from .data_preprocessor import (
+    SoftPreferenceRewardModelingDataset,
     BinaryRewardModelingDataset,
+    DataCollatorForSoftPreferenceRewardModelingDataset,
     DataCollatorForBinaryRewardModelingDataset,
     DataCollatorForSFTDataset,
     DataCollatorForStackableDataset,
@@ -131,6 +133,50 @@ def make_classification_reward_modeling_data_module(
     return dict(train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator)
 
 
+
+
+def make_soft_preference_reward_modeling_data_module(
+    tokenizer: transformers.PreTrainedTokenizer,
+    data_args,
+    training_args,
+):
+    prompt_dict = utils.jload(data_args.prompt_dict_path)
+    train_df = pd.read_json(data_args.train_data_filpeath)
+    eval_df = pd.read_json(data_args.validation_data_filepath)
+
+    train_dataset = SoftPreferenceRewardModelingDataset(
+        dataset_path=data_args.dataset_path,
+        df=train_df,
+        prompt_dict=prompt_dict,
+        tokenizer=tokenizer,
+        llm_label_type='both',
+        end_sequence_with_eos=training_args.end_sequence_with_eos,
+    )
+
+    # creating separate datasets for eval because we need to compare the scores 
+    # for each of the respones and then decide which is preferred by the rm
+    # eval dataset where it pairs the same prompt with the first response
+    eval_dataset1 = SoftPreferenceRewardModelingDataset(
+        dataset_path=data_args.dataset_path,
+        df=eval_df,
+        prompt_dict=prompt_dict,
+        tokenizer=tokenizer,
+        llm_label_type='first',
+        end_sequence_with_eos=training_args.end_sequence_with_eos,
+    )
+
+    # eval dataset where it pairs the same prompt with the second response
+    eval_dataset2 = SoftPreferenceRewardModelingDataset(
+        dataset_path=data_args.dataset_path,
+        df=eval_df,
+        prompt_dict=prompt_dict,
+        tokenizer=tokenizer,
+        llm_label_type='second',
+        end_sequence_with_eos=training_args.end_sequence_with_eos,
+    )
+
+    data_collator = DataCollatorForSoftPreferenceRewardModelingDataset(tokenizer=tokenizer)
+    return dict(train_dataset=train_dataset, eval_dataset=[eval_dataset1, eval_dataset2], data_collator=data_collator)
 
 def make_rl_data_module(
     tokenizer: List[transformers.PreTrainedTokenizer],

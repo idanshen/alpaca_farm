@@ -15,6 +15,7 @@
 import copy
 import dataclasses
 from typing import Callable, Dict, Optional, Sequence, Union, List
+import itertools
 
 import einops
 import pandas as pd
@@ -30,6 +31,7 @@ from .types import Tensor
 logger = logging.get_logger(__name__)
 INSTRUCTIONS = {
     'argilla/news-summary': "Generate a one-sentence summary of this post.",
+    'openai/summarize_from_feedback': "Generate a one-sentence summary of this post.",
     'seahorse_data': "Generate a one-sentence summary of this post.",
 }
 
@@ -105,7 +107,7 @@ def format_prompt_with_dataset(
         input_preprocess_fn = lambda x: "-".join(x["text"].replace("\n", " ").split("(Reuters) -")[1:]).strip()
         # overriding max query length
     elif dataset_path == 'openai/summarize_from_feedback':
-        filter_fn = lambda x: x["info"]["post"] is not None and x['info']["id"] is not None,
+        filter_fn = lambda x: x["info"]["post"] is not None and x['info']["id"] is not None
         id_map_fn = lambda x: {"id": x["info"]["id"]}
         input_preprocess_fn = lambda x: x["info"]["post"].replace("\n", " ")
 
@@ -253,6 +255,143 @@ def preprocess_for_sft(
 
     return packaged_data
 
+def preprocess_for_soft_preference_reward_modeling_both(
+    dataset_path: str,
+    df: pd.DataFrame,
+    prompt_dict: dict,
+    tokenizer: transformers.PreTrainedTokenizer,
+    llm_label_type: str,
+    df_postprocessor: Optional[Callable] = None,
+    end_sequence_with_eos: bool = False,
+    verbose=True,
+) -> dict[str, torch.Tensor]:
+    
+    assert llm_label_type == 'both', 'llm label type must be both for soft preference reward modeling'
+
+    if df_postprocessor is not None:
+        df = df_postprocessor(df)
+    list_dict_data = df.to_dict(orient="records")
+
+    def _get_numeric_preference(example: dict):
+        # 1 vs 2 is stored in table, but for modeling we use 0 vs 1; remap here.
+        return example["choice"]
+
+    choice = torch.tensor([[_get_numeric_preference(dict_data)] for dict_data in list_dict_data])
+
+    # TODO (seungwook): currently hard-coded for summary, may have to fix for other datasets
+    def _get_text(example: dict, index: int):
+        source = format_prompt({'instruction': INSTRUCTIONS[dataset_path], 'input': example['text']}, prompt_dict=prompt_dict)
+        target = format_output(
+            example,
+            eos_token=tokenizer.eos_token if end_sequence_with_eos else None,
+            output_key="summary1" if index == 0 else "summary2",
+        )
+        return source + target
+
+    text_list1 = [_get_text(dict_data, 0) for dict_data in list_dict_data]
+    text_list2 = [_get_text(dict_data, 1) for dict_data in list_dict_data]
+
+    def _get_labels(example: dict, index: int):
+            if index == 0:
+                return example['llm_label']
+            else:  
+                return example['llm_label'][::-1]
+
+    labels1 = torch.tensor([_get_labels(dict_data, 0) for dict_data in list_dict_data])
+    labels2 = torch.tensor([_get_labels(dict_data, 1) for dict_data in list_dict_data])
+    labels = torch.stack([labels1, labels2], dim=0)
+
+    logger.warning(f"Tokenizing {len(list_dict_data)} samples...")
+    tokenized1 = _tokenize_fn(text_list1, tokenizer)
+    tokenized2 = _tokenize_fn(text_list2, tokenizer)
+    # "size" (bsz, seq_len)
+    input_ids = [tokenized1['input_ids'], tokenized2['input_ids']]
+    tokenization_metadata = tokenized1['tokenization_metadata']
+
+    packaged_data = dict(
+        input_ids=input_ids, # [input_ids1, input_ids2]
+        labels=labels, # (2, label_size)
+        choice=choice,
+        tokenization_metadata=tokenization_metadata,
+        metadata=dict(mean_choice=choice.float().mean().item()),
+        both_samples=True
+    )
+    if verbose:
+        logger.warning(f"Tokenization metadata:\n{utils.jdumps(packaged_data['tokenization_metadata'])}")
+
+    return packaged_data
+
+def preprocess_for_soft_preference_reward_modeling(
+    dataset_path: str,
+    df: pd.DataFrame,
+    prompt_dict: dict,
+    tokenizer: transformers.PreTrainedTokenizer,
+    llm_label_type: str,
+    df_postprocessor: Optional[Callable] = None,
+    end_sequence_with_eos: bool = False,
+    verbose=True,
+) -> dict[str, torch.Tensor]:
+    
+    if df_postprocessor is not None:
+        df = df_postprocessor(df)
+    list_dict_data = df.to_dict(orient="records")
+
+    def _get_numeric_preference(example: dict):
+        # 1 vs 2 is stored in table, but for modeling we use 0 vs 1; remap here.
+        return example["choice"]
+
+    choice = torch.tensor([[_get_numeric_preference(dict_data)] for dict_data in list_dict_data])
+
+    if llm_label_type == 'preferred':
+        llm_choice_fn = lambda x: np.argmax(x)
+    elif llm_label_type == 'first':
+        llm_choice_fn = lambda x: 0
+    elif llm_label_type == 'second':
+        llm_choice_fn = lambda x: 1
+    elif llm_label_type == 'both':
+        raise Exception('llm label type cannot be both for the current preprocessing fn of soft preference reward modeling')
+    else:
+        raise NotImplementedError(f'{llm_choice_fn} llm label type not implemented.')
+    # TODO (seungwook): currently hard-coded for summary, may have to fix for other datasets
+    def _get_text(example: dict):
+        source = format_prompt({'instruction': INSTRUCTIONS[dataset_path], 'input': example['text']}, prompt_dict=prompt_dict)
+        llm_choice = llm_choice_fn(example['llm_label'])
+
+        target = format_output(
+            example,
+            eos_token=tokenizer.eos_token if end_sequence_with_eos else None,
+            output_key="summary1" if llm_choice == 0 else "summary2",
+        )
+        return source + target
+
+    text_list = [_get_text(dict_data) for dict_data in list_dict_data]
+
+    def _get_labels(example: dict):
+        # if preferred, then sort the llm label descending
+        if llm_label_type == 'preferred':
+            return sorted(example['llm_label'], reverse=True)
+        else:
+            return example['llm_label']
+
+    labels = torch.tensor([_get_labels(dict_data) for dict_data in list_dict_data])
+
+    logger.warning(f"Tokenizing {len(list_dict_data)} samples...")
+    tokenized = _tokenize_fn(text_list, tokenizer)
+    # "size" (bsz, seq_len)
+    input_ids = tokenized['input_ids']
+    tokenization_metadata = tokenized['tokenization_metadata']
+
+    packaged_data = dict(
+        input_ids=input_ids,
+        labels=labels,
+        choice=choice,
+        tokenization_metadata=tokenization_metadata,
+        metadata=dict(mean_choice=choice.float().mean().item()),
+    )
+    if verbose:
+        logger.warning(f"Tokenization metadata:\n{utils.jdumps(packaged_data['tokenization_metadata'])}")
+
+    return packaged_data
 
 def preprocess_for_reward_modeling(
     df: pd.DataFrame,
@@ -399,6 +538,56 @@ class DataCollatorForSFTDataset(object):
         )
 
 
+class SoftPreferenceRewardModelingDataset(Dataset):
+    def __init__(
+        self,
+        dataset_path: str,
+        df: pd.DataFrame,
+        prompt_dict: dict,
+        tokenizer: transformers.PreTrainedTokenizer,
+        llm_label_type: str,
+        df_postprocessor: Optional[Callable] = None,
+        end_sequence_with_eos: bool = False,
+    ):
+        super(SoftPreferenceRewardModelingDataset, self).__init__()
+        if llm_label_type == 'both':
+            data_dict = preprocess_for_soft_preference_reward_modeling_both(
+                dataset_path=dataset_path, 
+                df=df,
+                prompt_dict=prompt_dict,
+                tokenizer=tokenizer,
+                df_postprocessor=df_postprocessor,
+                end_sequence_with_eos=end_sequence_with_eos,
+                llm_label_type=llm_label_type
+            )
+        else:
+            data_dict = preprocess_for_soft_preference_reward_modeling(
+                dataset_path=dataset_path, 
+                df=df,
+                prompt_dict=prompt_dict,
+                tokenizer=tokenizer,
+                df_postprocessor=df_postprocessor,
+                end_sequence_with_eos=end_sequence_with_eos,
+                llm_label_type=llm_label_type
+            )
+        self.input_ids = data_dict["input_ids"]
+        self.labels = data_dict["labels"]
+        self.choice = data_dict["choice"]
+        self.metadata = data_dict["metadata"]
+        self.both_samples = data_dict["both_samples"] if 'both_samples' in data_dict else False
+
+    def __len__(self):
+        return len(self.input_ids)
+
+    def __getitem__(self, i) -> Dict[str, Tensor]:
+        return dict(
+            input_ids=self.input_ids[i] if not self.both_samples else [self.input_ids[0][i], self.input_ids[1][i]],
+            labels=self.labels[i] if not self.both_samples else torch.tensor[self.labels[0, i], self.labels[1, i]],
+            choice=self.choice[i],
+            both_samples=self.both_samples,
+        )
+
+
 class BinaryRewardModelingDataset(Dataset):
     def __init__(
         self,
@@ -433,6 +622,51 @@ class BinaryRewardModelingDataset(Dataset):
             index_0=self.index_0[i],
             index_1=self.index_1[i],
             choice=self.choice[i],
+        )
+
+@dataclasses.dataclass
+class DataCollatorForSoftPreferenceRewardModelingDataset(object):
+    """
+    This collation assumes data preprocessing converts text into *padded* tensors of the same length.
+    For autoregressive models like OPT and GPT2, `input_ids` alone is sufficient to produce the rewards.
+    For enc-dec models like T5, we need `labels`.
+
+    `input_ids` and `labels` are tensors of size (bsz, max_seq_len) and (bsz, 2)
+    `labels` are the llm-generated labels.
+    `choice` is a binary int/long tensor of size (bsz, 1) indicating which sequence in the pair is better (human preference labels).
+    """
+
+    tokenizer: transformers.PreTrainedTokenizer
+
+    def _left_pad_helper(self, instances: Sequence[dict], key: str, both_samples: bool=False):
+        # TODO(lxuechen): Potentially replace with `transformers.PretrainedTokenizerBase.prepare_for_model`.
+        # `instances` is a list of dicts, each dict has key whose value is a list of tensors, possibly of unequal length.
+        input_ids = [instance[key] for instance in instances]
+        # flatten out nested lists in input_ids
+        if both_samples:
+            input_ids = [seq for sublist in input_ids for seq in sublist]
+
+        input_ids = torch_ops.pad_sequence_from_left(
+            input_ids,
+            batch_first=True,
+            padding_value=self.tokenizer.pad_token_id,
+        )
+        return input_ids
+
+    def __call__(self, instances: Sequence[Dict]) -> Dict[str, Tensor]:
+        # if both samples are concatenated into one input, then we need to split them up and concatenate all together
+        if instances[0]['both_samples']:
+            labels = torch.cat([instance['labels'] for instance in instances], dim=0)
+        else:
+            labels, choice = tuple(torch.stack([instance[key] for instance in instances]) for key in ("labels", "choice"))
+        input_ids = self._left_pad_helper(instances, "input_ids", instances[0]['both_samples'])
+        attention_mask = input_ids.ne(self.tokenizer.pad_token_id).long()
+
+        return dict(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            labels=labels,
+            choice=choice,
         )
 
 

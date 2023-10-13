@@ -47,6 +47,7 @@ def run_decode(
     checkpoint_dir: Optional[str] = None,
     model_and_tokenizer: Optional[Tuple] = None,
     seed: Optional[int] = None,
+    **decoding_kwargs
 ):
     """Decode samples from the policy language model.
 
@@ -80,7 +81,12 @@ def run_decode(
             dataset=dataset[split_map[split]],
             prompt_dict=utils.jload(prompt_dict_path),
         )
-    # TODO (seungwook): fix this for the new tasks
+    elif dataset_path == 'openai/summarize_from_feedback':
+        prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_dataset(
+            dataset_path=dataset_path,
+            dataset=dataset[split],
+            prompt_dict=utils.jload(prompt_dict_path),
+        )
     else:
         prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_data_frame(
             df=pd.DataFrame(dataset[split]),
@@ -93,7 +99,7 @@ def run_decode(
         model_name_or_path=decoder_name_or_path,
         prompts=prompts,
         decoding_args=decode.HFDecodingArguments(
-            temperature=temperature, max_new_tokens=max_new_tokens, num_return_sequences=num_return_sequences
+            temperature=temperature, max_new_tokens=max_new_tokens, num_return_sequences=num_return_sequences, **decoding_kwargs
         ),
         per_device_batch_size=per_device_batch_size,
         accelerator=accelerator,
@@ -139,10 +145,13 @@ def run_decode_augmented(
     load_in_4_bits=False,
     checkpoint_dir: Optional[str] = None,
     q_checkpoint_dir: Optional[str] = None,
+    sft_checkpoint_dir: Optional[str] = None,
     flash_attn = False,
     model_and_tokenizer: Optional[Tuple] = None,
     beta: float = 1.0,
     seed: Optional[int] = None,
+    num_q_heads: Optional[int] = 1,
+    q_head_type: Optional[str] = 'linear',
     **decoding_kwargs,
 ):
     """Decode samples from the policy language model augmented with a q value estimator.
@@ -194,7 +203,7 @@ def run_decode_augmented(
         model_name_or_path=decoder_name_or_path,
         prompts=prompts,
         decoding_args=decode.HFDecodingArguments(
-            temperature=temperature, max_new_tokens=max_new_tokens, num_return_sequences=num_return_sequences
+            temperature=temperature, max_new_tokens=max_new_tokens,num_return_sequences=num_return_sequences, **decoding_kwargs
         ),
         per_device_batch_size=per_device_batch_size,
         accelerator=accelerator,
@@ -202,12 +211,13 @@ def run_decode_augmented(
         load_in_4_bits=load_in_4_bits,
         checkpoint_dir=checkpoint_dir,
         q_checkpoint_dir=q_checkpoint_dir,
+        sft_checkpoint_dir=sft_checkpoint_dir,
         flash_attn=flash_attn,
         model_and_tokenizer=model_and_tokenizer,
         seed=seed,
         beta=beta,
-        num_q_heads=decoding_kwargs['num_q_heads'],
-        q_head_type=decoding_kwargs['q_head_type'],
+        num_q_heads=num_q_heads,
+        q_head_type=q_head_type,
     )
 
     sample_mode = sample_mode_formatter.format(temperature=temperature, max_new_tokens=max_new_tokens, seed=seed)
