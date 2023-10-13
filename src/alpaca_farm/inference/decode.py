@@ -44,6 +44,8 @@ class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
         self.q_model = q_model # assumes that q model is already moved to device (whether on 1 device or multiple)
         self.beta = beta
         self.record_kl = record_kl
+        self.last_input_ids = None
+        self.past_key_values = None
         if record_kl:
             self.temperature = temperature
             self.average_kl = 0.0
@@ -51,7 +53,13 @@ class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
     
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
         # TODO (seungwook): may need to pass in mask as well?
-        q_outputs = self.q_model(input_ids, only_last=True)
+        if self.last_input_ids is not None and (input_ids[:, :-1].shape == self.last_input_ids.shape) and torch.all(input_ids[:, :-1] == self.last_input_ids):
+            # if the last input ids are the same as the current input ids, we can reuse the past key values
+            q_outputs = self.q_model(input_ids[-1:], past_key_values=self.past_key_values, use_cache=True)
+        else:
+            q_outputs = self.q_model(input_ids, only_last=True, use_cache=True)
+        self.past_key_values = q_outputs['past_key_values']
+        self.last_input_ids = input_ids
         augmented_q_outputs = scores + self.beta * q_outputs['qvalues'].squeeze()
         if self.record_kl:
             kl = self.kl(torch.softmax(scores/self.temperature, dim=-1), torch.softmax(augmented_q_outputs/self.temperature, dim=-1))
