@@ -577,7 +577,7 @@ class SoftPreferenceRewardModelingDataset(Dataset):
         self.both_samples = data_dict["both_samples"] if 'both_samples' in data_dict else False
 
     def __len__(self):
-        return len(self.input_ids)
+        return len(self.input_ids) if not self.both_samples else len(self.input_ids[0])
 
     def __getitem__(self, i) -> Dict[str, Tensor]:
         return dict(
