@@ -157,7 +157,7 @@ if __name__ == "__main__":
                                         accelerator=accelerator,
                                         beta=args.beta,
                                         topk=args.topk,
-                                        **decoding_kwargs))    
+                                        **decoding_kwargs)
         
             
         else:
