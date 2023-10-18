@@ -494,7 +494,7 @@ def decode_prompts_with_huggingface(
         v_model = make_value_with_base_model(Namespace(**decoding_kwargs), v_model, v_tokenizer, accelerator=accelerator)
         v_model.load_v_head(os.path.join(v_checkpoint_dir, 'value_head.pt'))
         
-        logits_processor = QLogitsProcessor(q_model=v_model, beta=beta, temperature=decoding_args.temperature, record_kl=True, topk=decoding_args.topk)
+        logits_processor = QLogitsProcessor(q_model=v_model, beta=beta, temperature=decoding_args.temperature, record_kl=True, topk=decoding_kwargs.topk)
         
         # delete num_q_heads and q_head_type from decoding_kwargs (they should be None anyway)
         decoding_kwargs.pop('num_q_heads', None)
