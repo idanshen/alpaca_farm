@@ -30,6 +30,7 @@ from accelerate import dispatch_model, infer_auto_device_map
 from accelerate.utils import get_balanced_memory
 from accelerate.utils import convert_outputs_to_fp32, is_torch_version
 from torch import nn
+from torch._dynamo import OptimizedModule
 from torch.distributed.fsdp import FullStateDictConfig
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp import StateDictType
@@ -186,8 +187,7 @@ def get_accelerate_model(
         model = AutoModelForCausalLM.from_pretrained(
             model_name_or_path,
             device_map='auto',
-            trust_remote_code=False,
-            # Set True to enable unpickling of arbitrary code in AutoModelForCausalLM#from_pretrained.
+            trust_remote_code=False,  # Set True to enable unpickling of arbitrary code in AutoModelForCausalLM#from_pretrained.
             cache_dir=transformer_cache_dir,
         )
 
@@ -216,7 +216,10 @@ def get_accelerate_model(
         else:
             print(f'adding LoRA modules...')
             model = get_peft_model(model, config)
-    
+
+    # compile the model for fast inference
+    # model = torch.compile(model)
+
     # wrap with accelerator for mixed precision
     accelerator.prepare(model)
 
@@ -455,6 +458,8 @@ def model_name_or_path_exists(model_name_or_path: AnyPath) -> bool:
 
 
 def get_transformer_hidden_size(model: transformers.PreTrainedModel):
+    if isinstance(model, OptimizedModule):
+        model = model._modules['_orig_mod']
     if isinstance(model, PeftModel):
         if isinstance(model.base_model, LoraModel):
             model = model.base_model.model

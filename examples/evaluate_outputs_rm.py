@@ -27,7 +27,6 @@ class Arguments:
         default="results.json", metadata={"help": "The path to the output json file."})
     per_device_batch_size: int = field(
         default=12, metadata={"help": "The path to the output json file."})
-    four_bits: bool = field(default=True, metadata={"help": "If True, uses 4-bit quantization."})
     flash_attn: bool = field(default=False, metadata={"help": "If True, uses Flash Attention."})
     bf16: bool = field(
         default=False, metadata={"help": "If True, uses bfloat16. If lora and four_bits are True, bfloat16 is used for the lora weights."})

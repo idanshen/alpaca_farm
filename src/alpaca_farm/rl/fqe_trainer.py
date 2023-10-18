@@ -299,8 +299,6 @@ class FQETrainer(rl_trainer.RLTrainer):
         return loss, common.flatten_dict(stats, sep="/", postprocess_fn=lambda x: x.detach())
 
     def record_step_stats(self, train_stats, rollouts, step_idx, **kwargs):
-        # kl = rollouts["kl"]
-        # kl_sum_seq, kl_avg_seq = kl.sum(dim=1).mean(dim=0), kl.mean()
         shaped_rewards = rollouts["shaped_rewards"].sum(dim=1).mean(dim=0)
         non_score_rewards = rollouts["non_score_rewards"].sum(dim=1).mean(dim=0)
         rewards = rollouts["rewards"].mean(dim=0)
