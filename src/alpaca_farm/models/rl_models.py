@@ -156,8 +156,7 @@ class Value(nn.Module, abc.ABC):
         value_head = torch.nn.Linear(hidden_size, 1)
         value_head.weight.data.zero_()
         value_head.bias.data.zero_()
-        self.value_head = value_head.to(self.head_device
-                                        )
+        self.value_head = value_head.to(self.head_device)
         self.model_parallel = True
         self.is_parallelizable = True
 
