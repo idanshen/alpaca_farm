@@ -72,7 +72,7 @@ class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
             q_outputs = self.q_model(input_ids, only_last=True)
         
             q_scores = torch.zeros_like(scores, device=scores.device)
-            q_scores[:, topk_ids] = q_outputs['values'].squeeze().T
+            q_scores[:, topk_ids] = q_outputs['values'].unsqueeze(0)
             augmented_q_outputs = scores + self.beta * q_scores
         
         else:
