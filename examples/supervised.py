@@ -22,8 +22,10 @@ import transformers
 from transformers import Trainer
 import sys
 import os
+from accelerate.utils import set_seed
 
 from alpaca_farm.utils import jload, jdump
+from alpaca_farm import accelerate_patch
 
 current = os.path.dirname(os.path.realpath(__file__))
 parent = os.path.dirname(current)
@@ -139,9 +141,24 @@ def main():
             local_rank=training_args.local_rank, world_size=training_args.world_size
         )
 
+    os.environ["WANDB_PROJECT"] = training_args.wandb_project
+
+    # set seed for determniistic training
+    set_seed(training_args.seed)
+
+    accelerator = accelerate_patch.MyAccelerator(
+        gradient_accumulation_steps=training_args.gradient_accumulation_steps,
+        mixed_precision='bf16' if training_args.bf16 else 'fp16',
+        log_with=["wandb"],
+        even_batches=True,  # Make sure the batch size on each device is the same.
+        split_batches=False,  # Don't break a batch into smaller chunks.
+        step_scheduler_with_optimizer=False,  # Untie optimizer and scheduler step.
+    )
+
     with ctx_mgr:
         model: transformers.PreTrainedModel = common.get_accelerate_model(
             model_name_or_path=model_args.model_name_or_path,
+            accelerator=accelerator,
             transformer_cache_dir=training_args.transformer_cache_dir,
             four_bits=training_args.four_bits,
             bfloat16=training_args.bfloat16,
