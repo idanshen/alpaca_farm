@@ -1,9 +1,10 @@
 output_dir=$1
 run_name=$2
 model_name_or_path=$3
+gpu=$4
 
 # torchrun --nproc_per_node=8 --master_port=1234 
-python3 examples/supervised.py \
+CUDA_VISIBLE_DEVICES=$gpu python3 examples/supervised.py \
   --model_name_or_path "${model_name_or_path}" \
   --dataset_path "./seahorse_data/" \
   --fp16 True \
