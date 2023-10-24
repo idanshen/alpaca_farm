@@ -2,19 +2,21 @@ output_dir=$1
 run_name=$2
 model_name_or_path=$3
 
-torchrun --nproc_per_node=8 --master_port=1234 examples/supervised.py \
+# torchrun --nproc_per_node=8 --master_port=1234 
+python3 examples/supervised.py \
   --model_name_or_path "${model_name_or_path}" \
-  --fp16 False \
-  --bf16 True \
+  --dataset_path "./seahorse_data/" \
+  --fp16 True \
+  --bf16 False \
   --seed 42 \
   --output_dir "${output_dir}" \
   --num_train_epochs 3 \
   --per_device_train_batch_size 1 \
-  --per_device_eval_batch_size 4 \
   --gradient_accumulation_steps 16 \
-  --eval_steps 100 \
+  --per_device_eval_batch_size 4 \
+  --eval_steps 500 \
   --save_strategy "steps" \
-  --save_steps 1000000000 \
+  --save_steps 200 \
   --save_total_limit 1 \
   --learning_rate 2e-5 \
   --weight_decay 0.0 \
@@ -22,12 +24,14 @@ torchrun --nproc_per_node=8 --master_port=1234 examples/supervised.py \
   --lr_scheduler_type "cosine" \
   --evaluation_strategy "steps" \
   --logging_steps 10 \
-  --wandb_project "alpaca_farm" \
+  --wandb_project "sft" \
   --run_name "${run_name}" \
   --tf32 True \
-  --flash_attn True \
-  --model_max_length 512 \
-  --ddp_timeout 1800 \
-  --fsdp "full_shard auto_wrap" \
-  --fsdp_transformer_layer_cls_to_wrap "LlamaDecoderLayer" \
-  --train_splits "sft"
+  --flash_attn False \
+  --model_max_length 2048 \
+  --train_splits "train" \
+  --eval_splits "validation"
+  # --ddp_timeout 1800 \
+  # --fsdp "full_shard auto_wrap" \
+  # --fsdp_transformer_layer_cls_to_wrap "LlamaDecoderLayer" \
+

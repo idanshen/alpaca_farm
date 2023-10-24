@@ -145,12 +145,17 @@ def stable_resize_token_embeddings(
         @torch.inference_mode()
         def stable_init(embedding):
             embedding_data = embedding.weight.data
-            embedding_avg = embedding_data[:-num_new_tokens].mean(dim=0, keepdim=True)
-            embedding_data[-num_new_tokens:] = embedding_avg
+            # embedding_avg = embedding_data[:-num_new_tokens].mean(dim=0, keepdim=True)
+            # initialize new embedding layers with all zeros
+            embedding_data[-num_new_tokens:] = torch.zeros_like(embedding_data[:-num_new_tokens])
             if jitter_new_embeddings:
                 embedding_std = embedding_data[:-num_new_tokens].std(dim=0, keepdim=True)
                 # The random tensor must be of the same shape as the new embeddings.
                 embedding_data[-num_new_tokens:] += torch.randn_like(embedding_data[-num_new_tokens:]) * embedding_std
+            
+            # assuming this new token is pad token
+            if num_new_tokens == 1:
+                embedding.padding_idx = target_size - 1
 
         input_embeddings = model.get_input_embeddings()  # Must grab this again after resize.
         output_embeddings = model.get_output_embeddings()

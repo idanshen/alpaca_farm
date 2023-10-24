@@ -50,7 +50,22 @@ def make_supervised_data_module(
 ):
     prompt_dict = utils.jload(data_args.prompt_dict_path)
 
-    alpaca_instructions = datasets.load_dataset(data_args.dataset_path, data_args.dataset_name)
+    if 'seahorse' in data_args.dataset_path:
+        data_files = {"train": "train.json", "validation": "validation.json"}
+        alpaca_instructions = datasets.load_dataset(data_args.dataset_path, data_files=data_files)
+
+        seahorse_instruction = "Generate a one-sentence summary of this post."
+        alpaca_instructions = alpaca_instructions.filter(lambda example: example['worker_lang'] == 'en-US')
+        alpaca_instructions = alpaca_instructions.map(
+            lambda example: {
+                "instruction": seahorse_instruction,
+                "input": example["text"],
+                "output": example["summary"],
+            },
+            remove_columns=["gem_id", "worker_lang", "model", "question1", "question2", "question3", "question4", "question5", "question6"]
+        )
+    else:
+        alpaca_instructions = datasets.load_dataset(data_args.dataset_path, data_args.dataset_name)
 
     train_df = pd.concat([pd.DataFrame(alpaca_instructions[split]) for split in data_args.train_splits])
     train_dataset = SFTDataset(
