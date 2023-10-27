@@ -203,6 +203,9 @@ def make_rl_data_module(
 
     if data_args.dataset_path == 'imdb':
         alpaca_instructions = datasets.load_dataset(data_args.dataset_path) # doesn't require separate path and name
+    elif 'seahorse' in data_args.dataset_path:
+        data_files = {"train": "train.json", "validation": "validation.json"}
+        alpaca_instructions = datasets.load_dataset(data_args.dataset_path, data_files=data_files)
     else:
         alpaca_instructions = datasets.load_dataset(data_args.dataset_path, data_args.dataset_name)
 
@@ -213,15 +216,13 @@ def make_rl_data_module(
         eval_split = split_map[data_args.eval_splits[0]]
         train_df = alpaca_instructions[train_split]
         eval_df = alpaca_instructions[eval_split]
-    elif data_args.dataset_path in {'lvwerra/stack-exchange-paired', 'Anthropic/hh-rlhf'}:
+    elif data_args.dataset_path in {'lvwerra/stack-exchange-paired', 'Anthropic/hh-rlhf'} or 'seahorse' in data_args.dataset_path:
         # TODO: may need to load from offline data on disk for speed for stack exchange
         split_map = {"train": "train", "validation": "test"}
         train_split = split_map[data_args.train_splits[0]]
         eval_split = split_map[data_args.eval_splits[0]]
         train_df = alpaca_instructions[train_split]
         eval_df = alpaca_instructions[eval_split]
-        # train_df = pd.concat([pd.DataFrame(alpaca_instructions[split_map[split]]) for split in data_args.train_splits])
-        # eval_df = pd.concat([pd.DataFrame(alpaca_instructions[split_map[split]]) for split in data_args.eval_splits])
     else:
         train_df = pd.concat([pd.DataFrame(alpaca_instructions[split]) for split in data_args.train_splits])
         eval_df = pd.concat([pd.DataFrame(alpaca_instructions[split]) for split in data_args.eval_splits])
@@ -235,7 +236,7 @@ def make_rl_data_module(
         prompt_postprocessor = None
 
     # instantiate dataset class depending on the dataset
-    if data_args.dataset_path in {'argilla/news-summary', 'openai/summarize_from_feedback'}:
+    if data_args.dataset_path in {'argilla/news-summary', 'openai/summarize_from_feedback'} or 'seahorse' in data_args.dataset_path:
         dataset_cls = SummaryQueryDataset
     elif data_args.dataset_path == {'lvwerra/stack-exchange-paired', 'Anthropic/hh-rlhf'}:
         dataset_cls = NoInputQueryDataset
