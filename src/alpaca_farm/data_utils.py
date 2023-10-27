@@ -127,6 +127,7 @@ def make_classification_reward_modeling_data_module(
     prompt_dict = utils.jload(data_args.prompt_dict_path)
     data_files = {"train": "train.json", "validation": "validation.json"}
     dataset_json = datasets.load_dataset(data_args.dataset_path, data_files=data_files)
+    dataset_json = dataset_json.filter(lambda example: example['worker_lang'] == 'en-US')
 
     train_dataset = ClassificationRewardModelingDataset(
         df=pd.DataFrame(dataset_json["train"]),
