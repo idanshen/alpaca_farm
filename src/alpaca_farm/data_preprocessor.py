@@ -32,7 +32,7 @@ logger = logging.get_logger(__name__)
 INSTRUCTIONS = {
     'argilla/news-summary': "Generate a one-sentence summary of this post.",
     'openai/summarize_from_feedback': "Generate a one-sentence summary of this post.",
-    'seahorse_data': "Generate a one-sentence summary of this post.",
+    './seahorse_data/': "Generate a one-sentence summary of this post.",
 }
 
 
@@ -119,7 +119,9 @@ def format_prompt_with_dataset(
         input_preprocess_fn = lambda x: x['text']
     else:
         raise NotImplementedError(f'Filter, id map, and input preprocess functions for dataset {dataset_path} not implemented.')
-        
+    
+    import IPython
+    IPython.embed()
     # remove empty instances
     df_filtered = df.filter(
         filter_fn,
