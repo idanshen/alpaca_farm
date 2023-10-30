@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import List, Literal
 import copy
 
-from accelerate import set_seed
+from accelerate.utils import set_seed
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import transformers
 
