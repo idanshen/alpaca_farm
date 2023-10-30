@@ -25,6 +25,7 @@ import transformers
 
 from alpaca_farm import common, constants, data_utils, logging, utils, accelerate_patch
 from alpaca_farm.models import reward_model
+from alpaca_farm.rl.trainer_utils import _make_padded_tokenizer
 from transformers import Trainer, TrainerCallback
 
 from datasets import load_metric
@@ -195,6 +196,7 @@ def main():
 
     # config = transformers.PretrainedConfig.get_config_dict(model_args.model_name_or_path)
     tokenizer = AutoTokenizer.from_pretrained('huggyllama/llama-7b')
+    tokenizer = _make_padded_tokenizer('huggyllama/llama-7b', padding_side='left', padding='longest')
     config = reward_model.RewardConfig(backbone_model_name_or_path='huggyllama/llama-7b')
     model = reward_model.RewardModel(
         accelerator=accelerator,
