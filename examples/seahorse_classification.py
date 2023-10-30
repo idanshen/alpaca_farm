@@ -19,8 +19,7 @@ from dataclasses import dataclass, field
 from typing import List, Literal
 import copy
 
-from accelerate import DistributedDataParallelKwargs
-import t5_encoder
+from accelerate import set_seed
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import transformers
 
@@ -121,6 +120,8 @@ class TrainingArguments(transformers.TrainingArguments):
             "If None, transformers will use the default cache directory."
         },
     )
+    fp16: bool = field(default=True, metadata={"help": "If True, uses fp16."})
+    bf16: bool = field(default=False, metadata={"help": "If True, uses bf16."})
     four_bits: bool = field(default=True, metadata={"help": "If True, uses 4-bit quantization."})
     bfloat16: bool = field(default=False, metadata={"help": "If True, uses bfloat16 quantization. If lora and four_bits are True, bfloat16 is used for the lora weights."})
     use_lora: bool = field(default=True, metadata={"help": "If True, uses LoRA."})
@@ -170,8 +171,48 @@ def main():
     if ',' in data_args.classification_label_key:
         data_args.classification_label_key = data_args.classification_label_key.split(',')
 
-    tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-large", model_max_length=1024)
-    model = AutoModelForSequenceClassification.from_pretrained("google/flan-t5-large")
+    # tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-large", model_max_length=1024)
+    # model = AutoModelForSequenceClassification.from_pretrained("google/flan-t5-large")
+
+    # set seed for determniistic training
+    set_seed(training_args.seed)
+
+    accelerator = accelerate_patch.MyAccelerator(
+        gradient_accumulation_steps=training_args.gradient_accumulation_steps,
+        mixed_precision='bf16' if training_args.bf16 else 'fp16',
+        log_with=["wandb"],
+        even_batches=True,  # Make sure the batch size on each device is the same.
+        split_batches=False,  # Don't break a batch into smaller chunks.
+        step_scheduler_with_optimizer=False,  # Untie optimizer and scheduler step.
+    )
+    
+    accelerator.init_trackers(
+        training_args.wandb_project,
+        init_kwargs={"wandb": {"name": training_args.run_name}},
+        config=training_args.__dict__,
+    )
+    logger.warning(accelerator.state, main_process_only=False) 
+
+    # config = transformers.PretrainedConfig.get_config_dict(model_args.model_name_or_path)
+    tokenizer = AutoTokenizer.from_pretrained('huggyllama/llama-7b')
+    config = reward_model.RewardConfig(backbone_model_name_or_path='huggyllama/llama-7b')
+    model = reward_model.RewardModel(
+        accelerator=accelerator,
+        pretrained_lora_weights=training_args.pretrained_lora_weights,
+        transformer_cache_dir=training_args.transformer_cache_dir,
+        four_bits=training_args.four_bits,
+        bfloat16=training_args.bfloat16,
+        use_lora=training_args.use_lora,
+        lora_r=training_args.lora_r,
+        lora_alpha=training_args.lora_alpha,
+        lora_dropout=training_args.lora_dropout,
+        gradient_checkpointing=training_args.gradient_checkpointing,
+        flash_attn=training_args.flash_attn,
+        config=config,)
+    common.let_model_save_mem_when_zero_grad(model)
+    common.cast_with_native_amp(model.forward, accelerator.mixed_precision)
+    
+    tokenizer = AutoTokenizer.from_pretrained('huggyllama/llama-7b')
 
     data_module = data_utils.make_classification_reward_modeling_data_module(
         tokenizer=tokenizer,
