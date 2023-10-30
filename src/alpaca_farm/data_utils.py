@@ -207,6 +207,8 @@ def make_rl_data_module(
     elif 'seahorse' in data_args.dataset_path:
         data_files = {"train": "train.json", "validation": "validation.json"}
         alpaca_instructions = datasets.load_dataset(data_args.dataset_path, data_files=data_files)
+        # filtering happening at dataset preprocessing
+        # alpaca_instructions = alpaca_instructions.filter(lambda example: example['worker_lang'] == 'en-US')
     else:
         alpaca_instructions = datasets.load_dataset(data_args.dataset_path, data_args.dataset_name)
 
@@ -217,9 +219,15 @@ def make_rl_data_module(
         eval_split = split_map[data_args.eval_splits[0]]
         train_df = alpaca_instructions[train_split]
         eval_df = alpaca_instructions[eval_split]
-    elif data_args.dataset_path in {'lvwerra/stack-exchange-paired', 'Anthropic/hh-rlhf'} or 'seahorse' in data_args.dataset_path:
+    elif data_args.dataset_path in {'lvwerra/stack-exchange-paired', 'Anthropic/hh-rlhf'}:
         # TODO: may need to load from offline data on disk for speed for stack exchange
         split_map = {"train": "train", "validation": "test"}
+        train_split = split_map[data_args.train_splits[0]]
+        eval_split = split_map[data_args.eval_splits[0]]
+        train_df = alpaca_instructions[train_split]
+        eval_df = alpaca_instructions[eval_split]
+    elif 'seahorse' in data_args.dataset_path:
+        split_map = {"train": "train", "validation": "validation"}
         train_split = split_map[data_args.train_splits[0]]
         eval_split = split_map[data_args.eval_splits[0]]
         train_df = alpaca_instructions[train_split]

@@ -182,6 +182,7 @@ def main():
         **data_module,
         compute_metrics=compute_metrics,
     )
+    # callback to evaluate on training dataset as well (slow)
     # trainer.add_callback(CustomCallback(trainer))
 
     trainer.train(resume_from_checkpoint=training_args.resume_from_checkpoint)
