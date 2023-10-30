@@ -26,6 +26,8 @@ import transformers
 from alpaca_farm import common, constants, data_utils, logging, utils, accelerate_patch
 from alpaca_farm.models import reward_model
 from alpaca_farm.rl.trainer_utils import _make_padded_tokenizer
+from alpaca_farm.reward_modeling_trainer import CETrainer
+
 from transformers import Trainer, TrainerCallback
 
 from datasets import load_metric
@@ -136,6 +138,16 @@ class TrainingArguments(transformers.TrainingArguments):
     weight_decay: float = field(default=0.01, metadata={"help": "Weight decay."})
     logging_first_step: bool = field(default=True, metadata={"help": "If True, logs the first step."})
 
+    label_names: List[str] = field(
+        default_factory=lambda: ["labels"],
+        metadata={
+            "help": "Names of the labels in the dataset. "
+            "This is needed to get transformers.Trainer to not throw those tensors away before `compute_loss`."
+            "By default, the trainer throws away columns it doesn't recognize when creating the "
+            "`train_dataloader` (see `_remove_unused_columns`). "
+        },
+    )
+
     def __post_init__(self):
         self.gradient_accumulation_steps = self.step_batch_size // self.per_device_train_batch_size
         super().__post_init__()
@@ -194,9 +206,6 @@ def main():
     )
     logger.warning(accelerator.state, main_process_only=False) 
 
-    # config = transformers.PretrainedConfig.get_config_dict(model_args.model_name_or_path)
-    # tokenizer = AutoTokenizer.from_pretrained('huggyllama/llama-7b')
-    # tokenizer = _make_padded_tokenizer('huggyllama/llama-7b', padding_side='left', padding='longest')
     config = reward_model.RewardConfig(backbone_model_name_or_path='huggyllama/llama-7b')
     model = reward_model.RewardModel(
         accelerator=accelerator,
@@ -210,7 +219,8 @@ def main():
         lora_dropout=training_args.lora_dropout,
         gradient_checkpointing=training_args.gradient_checkpointing,
         flash_attn=training_args.flash_attn,
-        config=config,)
+        config=config,
+        soft_preference=True) # hack to make the reward head have 2 outputs instead of 1
     common.let_model_save_mem_when_zero_grad(model)
     common.cast_with_native_amp(model.forward, accelerator.mixed_precision)
     
@@ -222,7 +232,7 @@ def main():
         training_args=training_args,
     )
 
-    trainer = Trainer(
+    trainer = CETrainer(
         model=model,
         tokenizer=tokenizer,
         args=training_args,

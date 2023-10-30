@@ -51,6 +51,20 @@ class Trainer(transformers.Trainer):
         loss = F.binary_cross_entropy_with_logits(logits, choice.to(logits.dtype), reduction="mean")
         return (loss, dict(logits=logits)) if return_outputs else loss
 
+class CETrainer(transformers.Trainer):
+    def compute_loss(self, model, inputs, return_outputs=False):
+        # input_ids, attention_mask each of size (bsz, num_candidates, seq_len).
+        # index_0, index_1 each of size (bsz, num_pairs); indexes into input_ids.
+        # choice of size (bsz, num_pairs); 1 if index_1's seq is chosen, 0 otherwise.
+        input_ids, labels = common.unpack_dict(
+            inputs, keys=("input_ids", "labels")
+        )
+        
+        logits = model(input_ids=input_ids).rewards
+        loss = F.cross_entropy(F.softmax(logits, dim=-1), labels, reduction="mean")
+        
+        return (loss, dict(logits=logits)) if return_outputs else loss
+
 
 def compute_reward_modeling_metrics(eval_prediction: EvalPrediction) -> Dict:
     # eval_prediction.label_ids is a tuple that matches up with `training_args.label_names`.
