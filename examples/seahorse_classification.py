@@ -224,7 +224,7 @@ def main():
     common.let_model_save_mem_when_zero_grad(model)
     common.cast_with_native_amp(model.forward, accelerator.mixed_precision)
     
-    tokenizer = _make_padded_tokenizer('huggyllama/llama-7b', padding_side='left', padding='longest')
+    tokenizer = _make_padded_tokenizer('huggyllama/llama-7b', padding_side='left', padding='max_length')
     
     data_module = data_utils.make_classification_reward_modeling_data_module(
         tokenizer=tokenizer,

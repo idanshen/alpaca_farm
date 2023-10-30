@@ -19,7 +19,11 @@ def _make_padded_tokenizer(
     if 'padding_side' in kwargs:
         tokenizer.padding_side = 'left' if kwargs['padding_side'] == 'left' else 'right'
 
-    tokenizer.padding = "longest"
+    if 'padding' in kwargs:
+        tokenizer.padding = kwargs['padding']
+    else:
+        tokenizer.padding = "longest"
+        
     if model_name_or_path == "huggyllama/llama-7b":
         tokenizer.pad_token_id = 0
     else:
