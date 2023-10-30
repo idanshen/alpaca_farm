@@ -44,7 +44,7 @@ class ModelArguments:
 
 @dataclass
 class DataArguments:
-    dataset_path: str = field(default="/data/pulkitag/models/idanshen/alpaca_farm/seahorse_data/")
+    dataset_path: str = field(default="./seahorse_data/")
     dataset_name: Literal["alpaca_human_preference", "alpaca_gpt4_preference", "alpaca_noisy_multi_preference"] = field(
         default="alpaca_noisy_multi_preference",
         metadata={"help": "Name of the dataset. Fetches the human or GPT-4 preference data."},
@@ -182,7 +182,7 @@ def main():
         **data_module,
         compute_metrics=compute_metrics,
     )
-    trainer.add_callback(CustomCallback(trainer))
+    # trainer.add_callback(CustomCallback(trainer))
 
     trainer.train(resume_from_checkpoint=training_args.resume_from_checkpoint)
     logger.warning("hooray! training finished successfully! now on to model saving.", main_process_only=True)

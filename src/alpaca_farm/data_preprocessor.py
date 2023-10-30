@@ -814,6 +814,8 @@ class SummaryQueryDataset(Dataset):
         filter_fn = None
         id_map_fn = None
         input_preprocess_fn = None
+        skip_deduplicate = False
+        
         if dataset_name == 'argilla/news-summary':
             filter_fn = lambda x: x["text"] is not None and x["id"] is not None
             id_map_fn = lambda x: {"id": x["id"]}
@@ -823,7 +825,17 @@ class SummaryQueryDataset(Dataset):
             filter_fn = lambda x: x["info"]["post"] is not None and x['info']["id"] is not None,
             id_map_fn = lambda x: {"id": x["info"]["id"]}
             input_preprocess_fn = lambda x: x["info"]["post"].replace("\n", " ")
-
+        elif 'seahorse' in dataset_name:
+            filter_fn = lambda x: x['worker_lang'] == 'en-US'
+            df = df.map(
+                lambda example: {
+                    "input": example["text"],
+                    "output": example["summary"],
+                },
+                remove_columns=["gem_id", "worker_lang", "model", "question1", "question2", "question3", "question4", "question5", "question6"]
+            )
+            input_preprocess_fn = lambda x: x['input']
+            skip_deduplicate = True
         else:
             raise NotImplementedError(f'Filter, id map, and input preprocess functions for dataset {dataset_name} not implemented.')
         
@@ -838,14 +850,17 @@ class SummaryQueryDataset(Dataset):
             f"are empty."
         )
 
-        # remove duplicate queries
-        def remove_duplicate(duplicated_dataset):
-            initial_list = duplicated_dataset.map(id_map_fn)
-            _ , unique_indices = np.unique(initial_list["id"], return_index=True, axis=0)
-            filtered_dataset = duplicated_dataset.select(unique_indices.tolist())
-            return filtered_dataset
+        if skip_deduplicate:
+            df_deduplicated = df_filtered
+        else:
+            # remove duplicate queries
+            def remove_duplicate(duplicated_dataset):
+                initial_list = duplicated_dataset.map(id_map_fn)
+                _ , unique_indices = np.unique(initial_list["id"], return_index=True, axis=0)
+                filtered_dataset = duplicated_dataset.select(unique_indices.tolist())
+                return filtered_dataset
 
-        df_deduplicated = remove_duplicate(df_filtered)
+            df_deduplicated = remove_duplicate(df_filtered)
 
         logger.warning(
             f"Deduplicated {len(df_filtered) - len(df_deduplicated)} instances out of {len(df_filtered)} that "
