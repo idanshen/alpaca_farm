@@ -195,8 +195,8 @@ def main():
     logger.warning(accelerator.state, main_process_only=False) 
 
     # config = transformers.PretrainedConfig.get_config_dict(model_args.model_name_or_path)
-    tokenizer = AutoTokenizer.from_pretrained('huggyllama/llama-7b')
-    tokenizer = _make_padded_tokenizer('huggyllama/llama-7b', padding_side='left', padding='longest')
+    # tokenizer = AutoTokenizer.from_pretrained('huggyllama/llama-7b')
+    # tokenizer = _make_padded_tokenizer('huggyllama/llama-7b', padding_side='left', padding='longest')
     config = reward_model.RewardConfig(backbone_model_name_or_path='huggyllama/llama-7b')
     model = reward_model.RewardModel(
         accelerator=accelerator,
@@ -214,8 +214,8 @@ def main():
     common.let_model_save_mem_when_zero_grad(model)
     common.cast_with_native_amp(model.forward, accelerator.mixed_precision)
     
-    tokenizer = AutoTokenizer.from_pretrained('huggyllama/llama-7b')
-
+    tokenizer = _make_padded_tokenizer('huggyllama/llama-7b', padding_side='left', padding='longest')
+    
     data_module = data_utils.make_classification_reward_modeling_data_module(
         tokenizer=tokenizer,
         data_args=data_args,
