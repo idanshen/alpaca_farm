@@ -120,8 +120,6 @@ def format_prompt_with_dataset(
     else:
         raise NotImplementedError(f'Filter, id map, and input preprocess functions for dataset {dataset_path} not implemented.')
     
-    import IPython
-    IPython.embed()
     # remove empty instances
     df_filtered = df.filter(
         filter_fn,
