@@ -165,6 +165,10 @@ def main():
     parser = transformers.HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     os.environ["WANDB_PROJECT"] = training_args.wandb_project
+    
+    # preprocess classification label arg st if there is a comma, split it into a list
+    if ',' in data_args.classification_label_key:
+        data_args.classification_label_key = data_args.classification_label_key.split(',')
 
     tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-large", model_max_length=1024)
     model = AutoModelForSequenceClassification.from_pretrained("google/flan-t5-large")

@@ -733,7 +733,7 @@ class ClassificationRewardModelingDataset(Dataset):
         tokenizer: transformers.PreTrainedTokenizer,
         df_postprocessor: Optional[Callable] = None,
         end_sequence_with_eos: bool = False,
-        classification_label_key: str = 'label',
+        classification_label_key: Union[str, List[str]] = 'label',
     ):
         super(ClassificationRewardModelingDataset, self).__init__()
         if df_postprocessor is not None:
@@ -748,7 +748,11 @@ class ClassificationRewardModelingDataset(Dataset):
         for index in sorted(indices_to_remove, reverse=True):
             del list_dict_data[index]
 
-        labels = torch.tensor([[dict_data[classification_label_key]] for dict_data in list_dict_data])
+        if isinstance(classification_label_key, list):
+            labels = torch.tensor([[dict_data[key] for key in classification_label_key] for dict_data in list_dict_data])
+            labels = (labels == 1.0).all(dim=-1).long()
+        else:
+            labels = torch.tensor([[dict_data[classification_label_key]] for dict_data in list_dict_data])
 
         def _get_text(example: dict, output_key: str):
             example['instruction'] = INSTRUCTIONS['seahorse_data']
