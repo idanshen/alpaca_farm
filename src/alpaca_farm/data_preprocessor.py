@@ -113,7 +113,7 @@ def format_prompt_with_dataset(
         filter_fn = lambda x: x["info"]["post"] is not None and x['info']["id"] is not None
         id_map_fn = lambda x: {"id": x["info"]["id"]}
         input_preprocess_fn = lambda x: x["info"]["post"].replace("\n", " ")
-    elif dataset_path == 'hanseungwook/seahorse':
+    elif 'seahorse' in dataset_path:
         filter_fn = lambda x: x['worker_lang'] == 'en-US'
         id_map_fn = lambda x: {'id': x['gem_id']}
         input_preprocess_fn = lambda x: x['text']
