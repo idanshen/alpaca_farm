@@ -10,6 +10,10 @@ def _make_padded_tokenizer(
     **kwargs,
 ) -> transformers.PreTrainedTokenizer:
     print(f"Loading tokenizer from {model_name_or_path}")
+    
+    # if using flan t5 classification model, use default tokenizer
+    if 'flant5' in model_name_or_path:
+        model_name_or_path = 'google/flan-t5-large'
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_name_or_path,
         cache_dir=cache_dir,
