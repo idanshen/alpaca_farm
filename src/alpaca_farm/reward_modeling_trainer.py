@@ -61,7 +61,7 @@ class CETrainer(transformers.Trainer):
         )
         
         logits = model(input_ids=input_ids).rewards
-        loss = F.cross_entropy(F.softmax(logits, dim=-1), labels, reduction="mean")
+        loss = F.cross_entropy(F.softmax(logits, dim=-1), labels.squeeze(), reduction="mean")
         
         return (loss, dict(logits=logits)) if return_outputs else loss
 
