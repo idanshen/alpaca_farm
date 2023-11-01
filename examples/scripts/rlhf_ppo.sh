@@ -1,11 +1,12 @@
 output_dir=$1
 run_name=$2
 reward_model_name_or_path=$3
-policy_model_name_or_path=$4
-policy_checkpoint=$5
-kl_coef=${6:-0.0067}
-dataset_path=$7
-dataset_name=$8
+reward_checkpoint=$4
+policy_model_name_or_path=$5
+policy_checkpoint=$6
+kl_coef=${7:-0.0067}
+dataset_path=$8
+dataset_name=$9
 
 config_file="./examples/accelerate_configs/rlhf_ppo_npp_llama.yaml"
 
@@ -16,6 +17,7 @@ CUDA_VISIBLE_DEVICES=4,5,6,7 accelerate launch --config_file "${config_file}" ex
   --per_device_eval_batch_size 1 \
   --output_dir "${output_dir}" \
   --reward_model_name_or_path "${reward_model_name_or_path}" \
+  --reward_model_checkpoint_dir "${reward_checkpoint}" \
   --policy_model_name_or_path "${policy_model_name_or_path}" \
   --policy_model_checkpoint_dir "${policy_checkpoint}" \
   --dataset_path "${dataset_path}" \

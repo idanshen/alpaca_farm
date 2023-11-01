@@ -19,20 +19,21 @@ from dataclasses import dataclass, field
 from typing import List, Literal
 import copy
 
+import torch
 from accelerate.utils import set_seed
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import transformers
+from transformers import Trainer, TrainerCallback, TrainerState, TrainerControl
+from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
+from peft import PeftModel
+import numpy as np
+from datasets import load_metric
+metric = load_metric('accuracy')
 
 from alpaca_farm import common, constants, data_utils, logging, utils, accelerate_patch
 from alpaca_farm.models import reward_model
 from alpaca_farm.rl.trainer_utils import _make_padded_tokenizer
 from alpaca_farm.reward_modeling_trainer import CETrainer
-
-from transformers import Trainer, TrainerCallback
-
-from datasets import load_metric
-import numpy as np
-metric = load_metric('accuracy')
 
 logger = logging.get_logger(__name__)
 
@@ -175,6 +176,36 @@ class CustomCallback(TrainerCallback):
         self._trainer.evaluate(eval_dataset=self._trainer.train_dataset, metric_key_prefix="train")
         return control_copy
 
+class SavePeftModelCallback(TrainerCallback):
+    def on_save(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs,
+    ):
+        checkpoint_folder = os.path.join(
+            args.output_dir, f"{PREFIX_CHECKPOINT_DIR}-{state.global_step}"
+        )       
+
+        model = kwargs['model']
+        if isinstance(model, PeftModel):
+            peft_model_path = os.path.join(checkpoint_folder, "adapter_model")
+            model.save_pretrained(peft_model_path)
+        elif isinstance(model, reward_model.RewardModel):
+            peft_model_path = os.path.join(checkpoint_folder, "adapter_model")
+            model.save_pretrained(peft_model_path)
+            
+            # reward head
+            reward_state_dict = {key: value.cpu() for key, value in model.reward_head.state_dict.items()}
+            torch.save({'state_dict': reward_state_dict} , os.path.join(peft_model_path, "reward_head.pt"))
+
+        pytorch_model_path = os.path.join(checkpoint_folder, "pytorch_model.bin")
+        if os.path.exists(pytorch_model_path):
+            os.remove(pytorch_model_path)
+        return control
+    
+
 def main():
     parser = transformers.HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
@@ -241,7 +272,8 @@ def main():
     )
     # callback to evaluate on training dataset as well (slow)
     # trainer.add_callback(CustomCallback(trainer))
-
+    trainer.add_callback(SavePeftModelCallback)
+    
     trainer.train(resume_from_checkpoint=training_args.resume_from_checkpoint)
     logger.warning("hooray! training finished successfully! now on to model saving.", main_process_only=True)
 
