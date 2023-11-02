@@ -114,8 +114,6 @@ class RewardNoLoraModel(transformers.PreTrainedModel):
         else:
             raise Exception('Backbone model not found')
         
-        self.backbone_model = self.model.transformer if hasattr(self.model, 'transformer') else self.model.model # TODO (seungwook): may need to fix for other models
-        
         self.reward_head = None
         if hasattr(self.model, 'score'):
             self.reward_head = self.model.score
