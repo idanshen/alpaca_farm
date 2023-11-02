@@ -836,8 +836,9 @@ class SummaryQueryDataset(Dataset):
                 lambda example: {
                     "input": example["text"],
                     "output": example["summary"],
+                    "worker_lang": example["worker_lang"],
                 },
-                remove_columns=["gem_id", "worker_lang", "model", "question1", "question2", "question3", "question4", "question5", "question6"]
+                remove_columns=["gem_id", "model", "question1", "question2", "question3", "question4", "question5", "question6"]
             )
             input_preprocess_fn = lambda x: x['input']
             skip_deduplicate = True
