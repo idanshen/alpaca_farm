@@ -103,8 +103,25 @@ class RewardNoLoraModel(transformers.PreTrainedModel):
                     model_name_or_path=config.backbone_model_name_or_path,
                     accelerator=accelerator,
                     **kwargs)
+        self.backbone_model = None
+        if hasattr(self.model, 'transformer'):
+            self.backbone_model = self.model.transformer
+        elif hasattr(self.model, 'model'):
+            self.backbone_model = self.model.model
+        elif hasattr(self.model, 'encoder'):
+            self.backbone_model = self.model.encoder
+        else:
+            raise Exception('Backbone model not found')
+        
         self.backbone_model = self.model.transformer if hasattr(self.model, 'transformer') else self.model.model # TODO (seungwook): may need to fix for other models
-        self.reward_head = self.model.score if hasattr(self.model, 'score') else None
+        
+        self.reward_head = None
+        if hasattr(self.model, 'score'):
+            self.reward_head = self.model.score
+        elif hasattr(self.model, 'classifier'):
+            self.reward_head = self.model.classifier
+        else:
+            raise Exception('Reward head not found')
         
         self.model_parallel = True
         self.is_parallelizable = True
