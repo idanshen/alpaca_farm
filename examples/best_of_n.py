@@ -87,7 +87,8 @@ def run_decode(
             dataset=dataset[split],
             prompt_dict=utils.jload(prompt_dict_path),
         )
-    if dataset_path == 'hanseungwook/seahorse':
+    elif 'seahorse' in dataset_path:
+        dataset = datasets.load_dataset(dataset_path, data_files = {"train": "train.json"})
         prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_dataset(
             dataset_path=dataset_path,
             dataset=dataset[split],

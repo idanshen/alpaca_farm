@@ -55,6 +55,7 @@ class Arguments:
     temperature: float = field(default=0.7)
     num_completions: int = field(default=10)
     output_file: str = field(default="/data/pulkitag/models/idanshen/alpaca_farm/sft/test_5/validation_dataset.json")
+    infinite_gen: bool = field(default=False, metadata={"help": "If True, generates data infinitely."})
 
 
 def generate_data(args, policy, policy_tokenizer, reward_model, reward_tokenizer, data_loader) -> List[Dict[str, Any]]:
@@ -154,13 +155,25 @@ if __name__ == "__main__":
         generated_data = generate_data(args, policy, policy_tokenizer, reward_model, reward_tokenizer, data_loader)
         jdump(generated_data, args.output_file)
     else:
-        list_dict_data = run_decode(decoder_name_or_path=args.policy_model_name_or_path,
-                                    checkpoint_dir=args.policy_model_checkpoint_dir,
-                                    num_return_sequences=1, temperature=1.0, per_device_batch_size=args.per_device_batch_size,
-                                    load_in_4_bits=args.four_bits,
-                                    flash_attn=args.flash_attn,
-                                    dataset_path=args.dataset_path, dataset_name=args.dataset_name,
-                                    split="train",
-                                    accelerator=accelerator,)
-        jdump(list_dict_data, args.output_file)
+        
+        list_save = []
+        count = 0
+        print('Infinite generation: ', args.infinite_gen)
+        
+        while True:
+            list_dict_data = run_decode(decoder_name_or_path=args.policy_model_name_or_path,
+                                        checkpoint_dir=args.policy_model_checkpoint_dir,
+                                        num_return_sequences=1, temperature=1.0, per_device_batch_size=args.per_device_batch_size,
+                                        load_in_4_bits=args.four_bits,
+                                        flash_attn=args.flash_attn,
+                                        dataset_path=args.dataset_path, dataset_name=args.dataset_name,
+                                        split="train",
+                                        accelerator=accelerator,)
+            list_save += list_dict_data
+            count += len(list_dict_data)
+            jdump(list_save, args.output_file)
+            print('Generated up to ', count, ' examples!')
+            
+            if not args.infinite_gen:
+                break
 

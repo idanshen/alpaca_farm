@@ -19,18 +19,21 @@ from dataclasses import dataclass, field
 from typing import List, Literal
 import copy
 
-from accelerate import DistributedDataParallelKwargs
-import t5_encoder
+import torch
+from accelerate.utils import set_seed
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import transformers
+from transformers import Trainer, TrainerCallback, TrainerState, TrainerControl
+from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
+from peft import PeftModel
+import numpy as np
+from datasets import load_metric
+metric = load_metric('accuracy')
 
 from alpaca_farm import common, constants, data_utils, logging, utils, accelerate_patch
 from alpaca_farm.models import reward_model
-from transformers import Trainer, TrainerCallback
-
-from datasets import load_metric
-import numpy as np
-metric = load_metric('accuracy')
+from alpaca_farm.rl.trainer_utils import _make_padded_tokenizer
+from alpaca_farm.reward_modeling_trainer import CETrainer
 
 logger = logging.get_logger(__name__)
 
@@ -44,7 +47,7 @@ class ModelArguments:
 
 @dataclass
 class DataArguments:
-    dataset_path: str = field(default="/data/pulkitag/models/idanshen/alpaca_farm/seahorse_data/")
+    dataset_path: str = field(default="./seahorse_data/")
     dataset_name: Literal["alpaca_human_preference", "alpaca_gpt4_preference", "alpaca_noisy_multi_preference"] = field(
         default="alpaca_noisy_multi_preference",
         metadata={"help": "Name of the dataset. Fetches the human or GPT-4 preference data."},
@@ -121,6 +124,8 @@ class TrainingArguments(transformers.TrainingArguments):
             "If None, transformers will use the default cache directory."
         },
     )
+    fp16: bool = field(default=True, metadata={"help": "If True, uses fp16."})
+    bf16: bool = field(default=False, metadata={"help": "If True, uses bf16."})
     four_bits: bool = field(default=True, metadata={"help": "If True, uses 4-bit quantization."})
     bfloat16: bool = field(default=False, metadata={"help": "If True, uses bfloat16 quantization. If lora and four_bits are True, bfloat16 is used for the lora weights."})
     use_lora: bool = field(default=True, metadata={"help": "If True, uses LoRA."})
@@ -133,6 +138,16 @@ class TrainingArguments(transformers.TrainingArguments):
     learning_rate: float = field(default=1e-4, metadata={"help": "Learning rate."})
     weight_decay: float = field(default=0.01, metadata={"help": "Weight decay."})
     logging_first_step: bool = field(default=True, metadata={"help": "If True, logs the first step."})
+
+    label_names: List[str] = field(
+        default_factory=lambda: ["labels"],
+        metadata={
+            "help": "Names of the labels in the dataset. "
+            "This is needed to get transformers.Trainer to not throw those tensors away before `compute_loss`."
+            "By default, the trainer throws away columns it doesn't recognize when creating the "
+            "`train_dataloader` (see `_remove_unused_columns`). "
+        },
+    )
 
     def __post_init__(self):
         self.gradient_accumulation_steps = self.step_batch_size // self.per_device_train_batch_size
@@ -161,29 +176,104 @@ class CustomCallback(TrainerCallback):
         self._trainer.evaluate(eval_dataset=self._trainer.train_dataset, metric_key_prefix="train")
         return control_copy
 
+class SavePeftModelCallback(TrainerCallback):
+    def on_save(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs,
+    ):
+        checkpoint_folder = os.path.join(
+            args.output_dir, f"{PREFIX_CHECKPOINT_DIR}-{state.global_step}"
+        )       
+
+        model = kwargs['model']
+        if isinstance(model, PeftModel):
+            peft_model_path = os.path.join(checkpoint_folder, "adapter_model")
+            model.save_pretrained(peft_model_path)
+        elif isinstance(model, reward_model.RewardModel):
+            peft_model_path = os.path.join(checkpoint_folder, "adapter_model")
+            model.save_pretrained(peft_model_path)
+            
+            # reward head
+            reward_state_dict = {key: value.cpu() for key, value in model.reward_head.state_dict.items()}
+            torch.save({'state_dict': reward_state_dict} , os.path.join(peft_model_path, "reward_head.pt"))
+
+        pytorch_model_path = os.path.join(checkpoint_folder, "pytorch_model.bin")
+        if os.path.exists(pytorch_model_path):
+            os.remove(pytorch_model_path)
+        return control
+    
+
 def main():
     parser = transformers.HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     os.environ["WANDB_PROJECT"] = training_args.wandb_project
+    
+    # preprocess classification label arg st if there is a comma, split it into a list
+    if ',' in data_args.classification_label_key:
+        data_args.classification_label_key = data_args.classification_label_key.split(',')
 
-    tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-large", model_max_length=1024)
-    model = AutoModelForSequenceClassification.from_pretrained("google/flan-t5-large")
+    # tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-large", model_max_length=1024)
+    # model = AutoModelForSequenceClassification.from_pretrained("google/flan-t5-large")
 
+    # set seed for determniistic training
+    set_seed(training_args.seed)
+
+    accelerator = accelerate_patch.MyAccelerator(
+        gradient_accumulation_steps=training_args.gradient_accumulation_steps,
+        mixed_precision='bf16' if training_args.bf16 else 'fp16',
+        log_with=["wandb"],
+        even_batches=True,  # Make sure the batch size on each device is the same.
+        split_batches=False,  # Don't break a batch into smaller chunks.
+        step_scheduler_with_optimizer=False,  # Untie optimizer and scheduler step.
+    )
+    
+    accelerator.init_trackers(
+        training_args.wandb_project,
+        init_kwargs={"wandb": {"name": training_args.run_name}},
+        config=training_args.__dict__,
+    )
+    logger.warning(accelerator.state, main_process_only=False) 
+
+    config = reward_model.RewardConfig(backbone_model_name_or_path='huggyllama/llama-7b')
+    model = reward_model.RewardModel(
+        accelerator=accelerator,
+        pretrained_lora_weights=training_args.pretrained_lora_weights,
+        transformer_cache_dir=training_args.transformer_cache_dir,
+        four_bits=training_args.four_bits,
+        bfloat16=training_args.bfloat16,
+        use_lora=training_args.use_lora,
+        lora_r=training_args.lora_r,
+        lora_alpha=training_args.lora_alpha,
+        lora_dropout=training_args.lora_dropout,
+        gradient_checkpointing=training_args.gradient_checkpointing,
+        flash_attn=training_args.flash_attn,
+        config=config,
+        soft_preference=True) # hack to make the reward head have 2 outputs instead of 1
+    common.let_model_save_mem_when_zero_grad(model)
+    common.cast_with_native_amp(model.forward, accelerator.mixed_precision)
+    
+    tokenizer = _make_padded_tokenizer('huggyllama/llama-7b', padding_side='left', padding='max_length')
+    
     data_module = data_utils.make_classification_reward_modeling_data_module(
         tokenizer=tokenizer,
         data_args=data_args,
         training_args=training_args,
     )
 
-    trainer = Trainer(
+    trainer = CETrainer(
         model=model,
         tokenizer=tokenizer,
         args=training_args,
         **data_module,
         compute_metrics=compute_metrics,
     )
-    trainer.add_callback(CustomCallback(trainer))
-
+    # callback to evaluate on training dataset as well (slow)
+    # trainer.add_callback(CustomCallback(trainer))
+    trainer.add_callback(SavePeftModelCallback)
+    
     trainer.train(resume_from_checkpoint=training_args.resume_from_checkpoint)
     logger.warning("hooray! training finished successfully! now on to model saving.", main_process_only=True)
 
