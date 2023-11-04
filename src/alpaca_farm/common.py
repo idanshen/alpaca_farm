@@ -274,6 +274,10 @@ def get_accelerate_sc_model(
     if is_trainable:
         model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=gradient_checkpointing)
     
+    # skip mixed precision if t5 b/c of nan issue
+    if 't5' in model_name_or_path.lower():
+        return model
+
     # wrap with accelerator for mixed precision
     accelerator.prepare(model)
 
