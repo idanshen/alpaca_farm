@@ -1,12 +1,12 @@
-output_dir="./ppo_seahorse_q4_flant5_kl0.05/"
-run_name="run_ppo_seahorse_q4_flant5"
-reward_model_name_or_path="./q_four_flant5/"
-reward_checkpoint=""
-policy_model_name_or_path="huggyllama/llama-7b"
-policy_checkpoint="/data/pulkitag/models/idanshen/shared/models/sft/sft_seahorse/"
-kl_coef=0.0067
-dataset_path="./seahorse_data/"
-dataset_name=""
+output_dir=$1
+run_name=$2
+reward_model_name_or_path=$3
+reward_checkpoint=$4
+policy_model_name_or_path=$5
+policy_checkpoint=$6
+kl_coef=${7:-0.0067}
+dataset_path=$8
+dataset_name=$9
 
 config_file="./examples/accelerate_configs/rlhf_ppo_npp_llama.yaml"
 
