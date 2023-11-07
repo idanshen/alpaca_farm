@@ -10,7 +10,7 @@ dataset_name=$9
 
 config_file="./examples/accelerate_configs/rlhf_ppo_npp_llama.yaml"
 
-CUDA_VISIBLE_DEVICES=4,5,6,7 accelerate launch --config_file "${config_file}" examples/rlhf_ppo.py \
+CUDA_VISIBLE_DEVICES=0,1 accelerate launch --config_file "${config_file}" examples/rlhf_ppo.py \
   --run_name "${run_name}" \
   --step_per_device_batch_size 1 \
   --rollout_per_device_batch_size 8 \
@@ -35,7 +35,7 @@ CUDA_VISIBLE_DEVICES=4,5,6,7 accelerate launch --config_file "${config_file}" ex
   --save_steps 5 \
   --train_splits "train" \
   --eval_splits "validation" \
-  --query_len 750 \
+  --query_len 950 \
   --wandb_project ppo
 
   # --step_per_device_batch_size 2 \
