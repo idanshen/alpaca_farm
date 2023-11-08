@@ -194,3 +194,5 @@ fqe_tristan/
 q_*
 fve_norm_10/
 checkpoint*
+fve_q4_td_one/
+fve_q4_td_zero/
