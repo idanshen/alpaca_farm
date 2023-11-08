@@ -254,7 +254,7 @@ def get_accelerate_sc_model(
     else:
         model = AutoModelForSequenceClassification.from_pretrained(
             model_name_or_path,
-            device_map='cuda:1',
+            device_map='cuda:0',
             trust_remote_code=False,
             # Set True to enable unpickling of arbitrary code in AutoModelForCausalLM#from_pretrained.
             cache_dir=transformer_cache_dir,

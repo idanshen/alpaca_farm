@@ -83,7 +83,7 @@ class FVETrainer(rl_trainer.RLTrainer):
         non_score_rewards = torch.zeros_like(responses, dtype=torch.float32)
         shaped_rewards = non_score_rewards.clone()
         # This introduces a small index off by one bug if pad_token_id == eos_token_id.
-        terminal_positions = (responses != self.reward_tokenizer.pad_token_id).sum(dim=1) - 1  # TODO (seungwook): make sure this is supposed to use reward tokenizer
+        terminal_positions = (responses != self.policy_tokenizer.pad_token_id).sum(dim=1) - 1
         shaped_rewards[list(range(rewards.size(0))), terminal_positions] += rewards
         return dict(shaped_rewards=shaped_rewards, non_score_rewards=non_score_rewards)
 
@@ -241,7 +241,7 @@ class FVETrainer(rl_trainer.RLTrainer):
         )
         batch_size = responses.size(0)
         if batch_size == 1:
-            # remove all padding tokens
+            # remove all padding tokens. When pad_token_id == eos_token_id it will lead to index off by one bug
             returns = returns[responses != self.policy_tokenizer.pad_token_id].view(1, -1)
             rewards = rewards[responses != self.policy_tokenizer.pad_token_id].view(1, -1)
             responses = responses[responses != self.policy_tokenizer.pad_token_id].view(1, -1)

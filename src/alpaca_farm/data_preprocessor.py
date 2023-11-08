@@ -1354,8 +1354,16 @@ class QueryResponseDataset(Dataset):
                 ]
             )
 
+        def right_pad_and_stack(list_of_tensors: Sequence[torch.Tensor], target_len: int):
+            return torch.stack(
+                [
+                    torch_ops.right_pad(tensor, target_size=(target_len,), value=tokenizer.pad_token_id)
+                    for tensor in list_of_tensors
+                ]
+            )
+
         queries = left_pad_and_stack(filtered_queries, query_len)
-        responses = left_pad_and_stack(filtered_responses, response_len)
+        responses = right_pad_and_stack(filtered_responses, response_len)
 
         self.queries = queries
         self.responses = responses
