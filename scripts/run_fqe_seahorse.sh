@@ -1,3 +1,5 @@
+gpu=$1
+
 CUDA_VISIBLE_DEVICES=$gpu python3 ./examples/rlhf_fqe.py \
   --run_name fqe_seahorse_q4_flant5 \
   --step_per_device_batch_size 1 \
