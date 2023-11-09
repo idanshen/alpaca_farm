@@ -257,9 +257,9 @@ class FVETrainer(rl_trainer.RLTrainer):
                 target_values = returns
             else:
                 # compute TD(0) targets
-                #  get Q-values for next states by shift action indices by 1, and append zero at the end
-                next_values = values[:, 1:, :].detach()
-                next_values = torch.cat([next_values, torch.zeros(next_values.shape[0], 1, len(self.policy_tokenizer)).to(self.accelerator.device)], dim=1)
+                #  get values for next states by shift action indices by 1, and append zero at the end
+                next_values = values[:, 1:].detach()
+                next_values = torch.cat([next_values, torch.zeros(next_values.shape[0], 1).to(self.accelerator.device)], dim=1)
                 # 1-step TD target
                 target_values = rewards + self.args.gamma * next_values
 
