@@ -16,6 +16,7 @@ def _make_padded_tokenizer(
         model_name_or_path = 'google/flan-t5-large'
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_name_or_path,
+        model_max_length=1024,
         cache_dir=cache_dir,
         **kwargs,
     )
