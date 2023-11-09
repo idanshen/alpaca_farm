@@ -88,7 +88,7 @@ def run_decode(
             prompt_dict=utils.jload(prompt_dict_path),
         )
     elif 'seahorse' in dataset_path:
-        dataset = datasets.load_dataset(dataset_path, data_files = {"train": "train.json"})
+        dataset = datasets.load_dataset(dataset_path, data_files = {"train": "train.json", 'validation': 'validation.json'})
         prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_dataset(
             dataset_path=dataset_path,
             dataset=dataset[split],
@@ -203,7 +203,8 @@ def run_decode_augmented(
             prompt_dict=utils.jload(prompt_dict_path),
         )
     elif 'seahorse' in dataset_path:
-        dataset = datasets.load_dataset(dataset_path, data_files = {"train": "train.json"})
+        dataset = datasets.load_dataset(dataset_path, data_files = {"train": "train.json", 'validation': 'validation.json'})
+        split_map = {"train": "train", "validation": "validation", "eval": "validation"}
         prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_dataset(
             dataset_path=dataset_path,
             dataset=dataset[split],
