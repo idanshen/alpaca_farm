@@ -881,10 +881,11 @@ class SummaryQueryDataset(Dataset):
             prompts = [prompt_postprocessor(prompt) for prompt in prompts]
 
         # tokenize and left-pad queries
-        queries = [tokenizer(prompt, return_tensors="pt", truncation=False).input_ids[0] for prompt in prompts]
-        
+        queries = tokenizer(prompts, truncation=False).input_ids
+
         # filter based on query max length
         filtered_queries = [query for query in queries if len(query) <= query_len]
+        filtered_prompts = [prompt for prompt, query in zip(prompts, queries) if len(query) <= query_len]
         logger.warning(
             f"Filtered out {len(queries) - len(filtered_queries)} instances out of {len(queries)} that "
             f"exceed length limit. These examples are not used for training, but will still be used in evaluation. "
@@ -892,7 +893,7 @@ class SummaryQueryDataset(Dataset):
 
         queries = torch.stack(
             [
-                torch_ops.left_pad(query, target_size=(query_len,), value=tokenizer.pad_token_id)
+                torch_ops.left_pad(torch.tensor(query), target_size=(query_len,), value=tokenizer.pad_token_id)
                 for query in filtered_queries
             ]
         )
@@ -901,7 +902,7 @@ class SummaryQueryDataset(Dataset):
         self.query_attn_masks = queries.ne(tokenizer.pad_token_id).long()
 
         # Auxiliary data.
-        self.prompts = prompts
+        self.prompts = filtered_prompts
         self.list_dict_data = None
 
         # Preprocessing functions
@@ -982,10 +983,11 @@ class SummaryQueryResponseDataset(Dataset):
             prompts = [prompt_postprocessor(prompt) for prompt in prompts]
 
         # tokenize and left-pad queries
-        queries = [tokenizer(prompt, return_tensors="pt", truncation=False).input_ids[0] for prompt in prompts]
-        
+        queries = tokenizer(prompts, truncation=False).input_ids
+
         # filter based on query max length
         filtered_queries = [query for query in queries if len(query) <= query_len]
+        filtered_prompts = [prompt for prompt, query in zip(prompts, queries) if len(query) <= query_len]
         logger.warning(
             f"Filtered out {len(queries) - len(filtered_queries)} instances out of {len(queries)} that "
             f"exceed length limit. These examples are not used for training, but will still be used in evaluation. "
@@ -993,7 +995,7 @@ class SummaryQueryResponseDataset(Dataset):
 
         queries = torch.stack(
             [
-                torch_ops.left_pad(query, target_size=(query_len,), value=tokenizer.pad_token_id)
+                torch_ops.left_pad(torch.tensor(query), target_size=(query_len,), value=tokenizer.pad_token_id)
                 for query in filtered_queries
             ]
         )
@@ -1002,7 +1004,7 @@ class SummaryQueryResponseDataset(Dataset):
         self.query_attn_masks = queries.ne(tokenizer.pad_token_id).long()
 
         # Auxiliary data.
-        self.prompts = prompts
+        self.prompts = filtered_prompts
         self.list_dict_data = None
 
     def __getitem__(self, i):
@@ -1086,10 +1088,11 @@ class NoInputQueryDataset(Dataset):
             prompts = [prompt_postprocessor(prompt) for prompt in prompts]
 
         # tokenize and left-pad queries
-        queries = [tokenizer(prompt, return_tensors="pt", truncation=False).input_ids[0] for prompt in prompts]
-        
-        # filter based on query max length (512 from reward soup)
+        queries = tokenizer(prompts, truncation=False).input_ids
+
+        # filter based on query max length
         filtered_queries = [query for query in queries if len(query) <= query_len]
+        filtered_prompts = [prompt for prompt, query in zip(prompts, queries) if len(query) <= query_len]
         logger.warning(
             f"Filtered out {len(queries) - len(filtered_queries)} instances out of {len(queries)} that "
             f"exceed length limit. These examples are not used for training, but will still be used in evaluation. "
@@ -1097,7 +1100,7 @@ class NoInputQueryDataset(Dataset):
 
         queries = torch.stack(
             [
-                torch_ops.left_pad(query, target_size=(query_len,), value=tokenizer.pad_token_id)
+                torch_ops.left_pad(torch.tensor(query), target_size=(query_len,), value=tokenizer.pad_token_id)
                 for query in filtered_queries
             ]
         )
@@ -1106,7 +1109,7 @@ class NoInputQueryDataset(Dataset):
         self.query_attn_masks = queries.ne(tokenizer.pad_token_id).long()
 
         # Auxiliary data.
-        self.prompts = prompts
+        self.prompts = filtered_prompts
         self.list_dict_data = None
 
     def __getitem__(self, i):
@@ -1158,10 +1161,11 @@ class ReviewQueryDataset(Dataset):
             prompts = [prompt_postprocessor(prompt) for prompt in prompts]
 
         # tokenize and left-pad queries
-        queries = [tokenizer(prompt, return_tensors="pt", truncation=False).input_ids[0] for prompt in prompts]
-        
+        queries = tokenizer(prompts, truncation=False).input_ids
+
         # filter based on query max length
         filtered_queries = [query for query in queries if len(query) <= query_len]
+        filtered_prompts = [prompt for prompt, query in zip(prompts, queries) if len(query) <= query_len]
         logger.warning(
             f"Filtered out {len(queries) - len(filtered_queries)} instances out of {len(queries)} that "
             f"exceed length limit. These examples are not used for training, but will still be used in evaluation. "
@@ -1169,7 +1173,7 @@ class ReviewQueryDataset(Dataset):
 
         queries = torch.stack(
             [
-                torch_ops.left_pad(query, target_size=(query_len,), value=tokenizer.pad_token_id)
+                torch_ops.left_pad(torch.tensor(query), target_size=(query_len,), value=tokenizer.pad_token_id)
                 for query in filtered_queries
             ]
         )
@@ -1178,7 +1182,7 @@ class ReviewQueryDataset(Dataset):
         self.query_attn_masks = queries.ne(tokenizer.pad_token_id).long()
 
         # Auxiliary data.
-        self.prompts = prompts
+        self.prompts = filtered_prompts
         self.list_dict_data = None
 
     def __getitem__(self, i):
@@ -1230,10 +1234,11 @@ class AssistantQueryDataset(Dataset):
             prompts = [prompt_postprocessor(prompt) for prompt in prompts]
 
         # tokenize and left-pad queries
-        queries = [tokenizer(prompt, return_tensors="pt", truncation=False).input_ids[0] for prompt in prompts]
-        
+        queries = tokenizer(prompts, truncation=False).input_ids
+
         # filter based on query max length
         filtered_queries = [query for query in queries if len(query) <= query_len]
+        filtered_prompts = [prompt for prompt, query in zip(prompts, queries) if len(query) <= query_len]
         logger.warning(
             f"Filtered out {len(queries) - len(filtered_queries)} instances out of {len(queries)} that "
             f"exceed length limit. These examples are not used for training, but will still be used in evaluation. "
@@ -1241,7 +1246,7 @@ class AssistantQueryDataset(Dataset):
 
         queries = torch.stack(
             [
-                torch_ops.left_pad(query, target_size=(query_len,), value=tokenizer.pad_token_id)
+                torch_ops.left_pad(torch.tensor(query), target_size=(query_len,), value=tokenizer.pad_token_id)
                 for query in filtered_queries
             ]
         )
@@ -1250,7 +1255,7 @@ class AssistantQueryDataset(Dataset):
         self.query_attn_masks = queries.ne(tokenizer.pad_token_id).long()
 
         # Auxiliary data.
-        self.prompts = prompts
+        self.prompts = filtered_prompts
         self.list_dict_data = None
 
     def __getitem__(self, i):
@@ -1283,8 +1288,11 @@ class QueryDataset(Dataset):
         if prompt_postprocessor is not None:
             prompts = [prompt_postprocessor(prompt) for prompt in prompts]
 
-        queries = [tokenizer(prompt, return_tensors="pt", truncation=False).input_ids[0] for prompt in prompts]
+        queries = tokenizer(prompts, truncation=False).input_ids
+
+        # filter based on query max length
         filtered_queries = [query for query in queries if len(query) <= query_len]
+        filtered_prompts = [prompt for prompt, query in zip(prompts, queries) if len(query) <= query_len]
         logger.warning(
             f"Filtered out {len(queries) - len(filtered_queries)} instances out of {len(queries)} that "
             f"exceed length limit. These examples are not used for training, but will still be used in evaluation. "
@@ -1292,7 +1300,7 @@ class QueryDataset(Dataset):
 
         queries = torch.stack(
             [
-                torch_ops.left_pad(query, target_size=(query_len,), value=tokenizer.pad_token_id)
+                torch_ops.left_pad(torch.tensor(query), target_size=(query_len,), value=tokenizer.pad_token_id)
                 for query in filtered_queries
             ]
         )
@@ -1301,7 +1309,7 @@ class QueryDataset(Dataset):
         self.query_attn_masks = queries.ne(tokenizer.pad_token_id).long()
 
         # Auxiliary data.
-        self.prompts = prompts
+        self.prompts = filtered_prompts
         self.list_dict_data = list_dict_data
 
     def __getitem__(self, i):
@@ -1334,7 +1342,7 @@ class QueryResponseDataset(Dataset):
         filtered_pairs = [
             (query, response)
             for query, response in utils.zip_(queries, responses)
-            if len(query) <= query_len and len(response) <= response_len
+            if len(query) <= query_len and len(response) <= response_len and len(query) > 1 and len(response) > 1
         ]
         filtered_queries = [query for query, _ in filtered_pairs]
         filtered_responses = [response for _, response in filtered_pairs]
@@ -1354,8 +1362,16 @@ class QueryResponseDataset(Dataset):
                 ]
             )
 
+        def right_pad_and_stack(list_of_tensors: Sequence[torch.Tensor], target_len: int):
+            return torch.stack(
+                [
+                    torch_ops.right_pad(tensor, target_size=(target_len,), value=tokenizer.pad_token_id)
+                    for tensor in list_of_tensors
+                ]
+            )
+
         queries = left_pad_and_stack(filtered_queries, query_len)
-        responses = left_pad_and_stack(filtered_responses, response_len)
+        responses = right_pad_and_stack(filtered_responses, response_len)
 
         self.queries = queries
         self.responses = responses
@@ -1386,7 +1402,9 @@ class OutputValuesDataset(Dataset):
         if prompt_postprocessor is not None:
             texts = [prompt_postprocessor(text) for text in texts]
 
-        queries = [tokenizer(text, return_tensors="pt", truncation=False).input_ids[0] for text in texts]
+        queries = tokenizer(texts, truncation=False).input_ids
+
+        # filter based on query max length
         filtered_queries = [query for query in queries if len(query) <= query_len]
         logger.warning(
             f"Filtered out {len(queries) - len(filtered_queries)} instances out of {len(queries)} that "
@@ -1395,7 +1413,7 @@ class OutputValuesDataset(Dataset):
 
         queries = torch.stack(
             [
-                torch_ops.left_pad(query, target_size=(query_len,), value=tokenizer.pad_token_id)
+                torch_ops.left_pad(torch.tensor(query), target_size=(query_len,), value=tokenizer.pad_token_id)
                 for query in filtered_queries
             ]
         )

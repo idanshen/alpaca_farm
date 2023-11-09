@@ -29,7 +29,7 @@ from accelerate import DistributedType
 import peft
 
 from .. import accelerate_patch, common, constants, data_preprocessor, logging, torch_ops, utils
-from ..common import save_peft_model
+from ..common import save_peft_model, cast_with_native_amp
 from ..models import rl_models
 from ..models.make_models import make_reward_model, make_generative_policy
 from ..types import LRScheduler, Tensor
@@ -180,7 +180,12 @@ class PPOTrainer(rl_trainer.RLTrainer):
             for ts in text_sequences:
                 s = self.reward_tokenizer(ts, return_tensors="pt", truncation=True)
                 s = common.prepare_inputs(s, device=self.accelerator.device)
-                r = self.reward_model(**s)
+                r = self.reward_model(s['input_ids'])
+                if r.rewards.isnan().any() or r.rewards.isinf().any():
+                    print(s)
+                    print(r)
+                    import IPython
+                    IPython.embed()
                 reward_outputs_list.append(r.rewards)
             
             reward_outputs = torch.cat(reward_outputs_list, dim=0)
@@ -469,6 +474,7 @@ def make_models(
     ref_policy = accelerator.prepare(ref_policy)  # noqa
 
     reward_model = make_reward_model(args, accelerator, is_trainable=False)
+    reward_model.forward = cast_with_native_amp(reward_model.forward, mixed_precision='bf16')
     reward_model.requires_grad_(False)
 
     # TODO: This is a hack to get FSDP running. Remove in the future when this is fixed.
