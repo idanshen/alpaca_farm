@@ -194,9 +194,9 @@ def get_accelerate_model(
     if flash_attn:
         print("Using Flash Attention. Notice that this feature requires per device batch size 1.")
         model = BetterTransformer.transform(model)
-
-    setattr(model, 'model_parallel', True)
-    setattr(model, 'is_parallelizable', True)
+    if not model.is_parallelizable:
+        setattr(model, 'model_parallel', True)
+        setattr(model, 'is_parallelizable', True)
 
     if use_lora:
         if is_trainable and four_bits:

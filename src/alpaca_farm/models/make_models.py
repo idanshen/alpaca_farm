@@ -10,7 +10,7 @@ import alpaca_farm.models.reward_model as reward_model_module
 def make_generative_policy(args, accelerator, is_trainable=False):
     base_model = common.get_accelerate_model(
         model_name_or_path=args.policy_model_name_or_path,
-        pretrained_lora_weights=args.policy_model_checkpoint_dir,
+        pretrained_lora_weights=args.policy_model_checkpoint_dir if args.policy_model_checkpoint_dir != 'None' else None,
         four_bits=args.four_bits,
         use_lora=args.use_lora,
         flash_attn=args.flash_attn,
@@ -36,7 +36,7 @@ def make_reward_model(args, accelerator, is_trainable=False):
             four_bits=args.four_bits,
             use_lora=args.use_lora,
             flash_attn=args.flash_attn,
-            pretrained_lora_weights=args.reward_model_checkpoint_dir,
+            pretrained_lora_weights=args.reward_model_checkpoint_dir if args.reward_model_checkpoint_dir != 'None' else None,
             is_trainable=is_trainable,
             config=reward_model_config,
             accelerator=accelerator)
