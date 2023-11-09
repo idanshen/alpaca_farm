@@ -207,7 +207,7 @@ def run_decode_augmented(
         split_map = {"train": "train", "validation": "validation", "eval": "validation"}
         prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_dataset(
             dataset_path=dataset_path,
-            dataset=dataset[split],
+            dataset=dataset[split_map[split]],
             prompt_dict=utils.jload(prompt_dict_path),
         )
     else:
