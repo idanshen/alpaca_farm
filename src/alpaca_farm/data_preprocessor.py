@@ -1402,7 +1402,7 @@ class OutputValuesDataset(Dataset):
         if prompt_postprocessor is not None:
             texts = [prompt_postprocessor(text) for text in texts]
 
-        queries = tokenizer(prompts, truncation=False).input_ids
+        queries = tokenizer(texts, truncation=False).input_ids
 
         # filter based on query max length
         filtered_queries = [query for query in queries if len(query) <= query_len]
