@@ -194,9 +194,9 @@ def get_accelerate_model(
     if flash_attn:
         print("Using Flash Attention. Notice that this feature requires per device batch size 1.")
         model = BetterTransformer.transform(model)
-
-    setattr(model, 'model_parallel', True)
-    setattr(model, 'is_parallelizable', True)
+    if not model.is_parallelizable:
+        setattr(model, 'model_parallel', True)
+        setattr(model, 'is_parallelizable', True)
 
     if use_lora:
         if is_trainable and four_bits:
@@ -252,9 +252,12 @@ def get_accelerate_sc_model(
             cache_dir=transformer_cache_dir,
         )
     else:
+        device_map = 'auto'
+        if 't5' in model_name_or_path and torch.cuda.device_count() > 1:
+            device_map = 'cuda:1'
         model = AutoModelForSequenceClassification.from_pretrained(
             model_name_or_path,
-            device_map='cuda:0',
+            device_map=device_map,
             trust_remote_code=False,
             # Set True to enable unpickling of arbitrary code in AutoModelForCausalLM#from_pretrained.
             cache_dir=transformer_cache_dir,

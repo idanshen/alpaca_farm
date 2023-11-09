@@ -275,6 +275,7 @@ def make_rl_data_module(
             split='val',
         )
     else:
+        print('in static dataset')
         path_to_data = training_args.static_dataset_path
         if os.path.isfile(path_to_data):
             list_dict_data = jload(path_to_data)
@@ -282,6 +283,7 @@ def make_rl_data_module(
             list_dict_data = []
             for filename in os.listdir(path_to_data):
                 if filename.endswith(".json"):
+                    print(filename)
                     path_to_file = os.path.join(path_to_data, filename)
                     list_dict_data.extend(jload(path_to_file))
         else:

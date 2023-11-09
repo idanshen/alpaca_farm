@@ -121,7 +121,7 @@ class TrainingArguments(transformers.TrainingArguments):
     reward_model_name_or_path: str = field(default=None)
     reward_model_checkpoint_dir: str = field(default=None)
     use_fast_tokenizer: bool = field(
-        default=False,
+        default=True,
         metadata={
             "help": "Use fast tokenizer if True. "
             "Fast LLaMA tokenizer forces protobuf downgrade to 3.20.3. "
