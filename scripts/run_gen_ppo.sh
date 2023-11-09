@@ -12,7 +12,7 @@ CUDA_VISIBLE_DEVICES=$gpu python examples/generate_qmodel.py \
   --temp 1.0 \
   --per_device_batch_size 1 \
   --path_to_result $2 \
-  --dataset_path argilla/news-summary \
-  --dataset_name comparisons \
+  --dataset_path ./seahorse_data/ \
+  --dataset_name '' \
   --fp16 \
   --flash_attn False
