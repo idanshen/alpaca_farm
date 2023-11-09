@@ -1334,7 +1334,7 @@ class QueryResponseDataset(Dataset):
         filtered_pairs = [
             (query, response)
             for query, response in utils.zip_(queries, responses)
-            if len(query) <= query_len and len(response) <= response_len
+            if len(query) <= query_len and len(response) <= response_len and len(query) > 1 and len(response) > 1
         ]
         filtered_queries = [query for query, _ in filtered_pairs]
         filtered_responses = [response for _, response in filtered_pairs]
