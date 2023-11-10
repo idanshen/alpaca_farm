@@ -278,11 +278,15 @@ class FQETrainer(rl_trainer.RLTrainer):
         cql_loss = torch.sum(logits.softmax(dim=-1) * q_values_logits.log_softmax(dim=-1), dim=2).mean()
 
         qf_losses = (q_preds - target_q_values) ** 2.0
-        loss = qf_losses.mean() - self.kl_ctl.value * cql_loss
+        loss_mask = responses != self.policy_tokenizer.pad_token_id
+        denom = loss_mask.sum(dim=1)
+        per_sample_loss = (qf_losses * loss_mask.detach()).sum(dim=1) / denom
+        loss = per_sample_loss.mean() - self.kl_ctl.value * cql_loss
 
         with torch.no_grad():
             entropy = -(q_values_logits.softmax(dim=-1) * q_values_logits.log_softmax(dim=-1)).sum(dim=-1).mean()
-            return_mean, return_var = returns.mean(), returns.var(unbiased=False)
+            return_var = returns.var(unbiased=False)
+            return_mean = (returns.sum(dim=1) / loss_mask.sum(dim=1)).mean()
             value_mean, value_var = q_preds.mean(), q_preds.var(unbiased=False)
 
         stats = dict(
