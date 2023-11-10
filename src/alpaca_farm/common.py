@@ -350,7 +350,7 @@ def safe_save_model_for_hf_trainer(
         peft_model_path = os.path.join(output_dir, "adapter_model")
         save_peft_model(model.backbone_model, peft_model_path)
         # Saving final layer
-        torch.save(model.reward_head, os.path.join(peft_model_path, "reward_head.pt"))
+        torch.save(model.reward_head, os.path.join(output_dir, "reward_head.pt"))
 
     if trainer.fsdp is not None:
         # NOTE(rtaori): technically should be rank0_only=True (otherwise duplicates model in RAM),
