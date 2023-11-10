@@ -39,7 +39,8 @@ def make_reward_model(args, accelerator, is_trainable=False):
             pretrained_lora_weights=args.reward_model_checkpoint_dir if args.reward_model_checkpoint_dir != 'None' else None,
             is_trainable=is_trainable,
             config=reward_model_config,
-            accelerator=accelerator)
+            accelerator=accelerator,
+            soft_preference=args.soft_preference if hasattr(args, 'soft_preference') and args.soft_preference else False)
     return base_reward_model
 
 
