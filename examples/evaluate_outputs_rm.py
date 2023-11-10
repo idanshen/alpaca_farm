@@ -32,7 +32,14 @@ class Arguments:
         default=False, metadata={"help": "If True, uses bfloat16. If lora and four_bits are True, bfloat16 is used for the lora weights."})
     fp16: bool = field(
         default=False, metadata={"help": "If True, uses float16. "})
-    use_lora: bool = field(default=True, metadata={"help": "If True, uses LoRA."})
+    
+    # peft / quantization
+    use_lora: bool = field(default=False, metadata={"help": "If True, uses LoRA."})
+    four_bits: bool = field(default=False, metadata={"help": "If True, uses 4-bit quantization."})
+
+    # reward model specific args
+    soft_preference: bool = field(default=False, metadata={"help": "If True, uses soft preference."})
+
     transformer_cache_dir: str = field(
         default=None,
         metadata={
