@@ -85,6 +85,7 @@ if __name__ == "__main__":
         print('Output file already exists, skipping generating data')
     else:
         print('Start generating data')
+        # ppo or sft
         if args.q_checkpoint_dir == '' and args.sft_checkpoint_dir == '': #and no multiple lora checkpoints
             print('No q model checkpoint dir is provided, using the default decoder model')
 
@@ -100,7 +101,7 @@ if __name__ == "__main__":
                                         accelerator=accelerator,
                                         **decoding_kwargs)
             avg_kl = None
-            
+        # ppo, where sft is provided for kl calculation
         elif args.q_checkpoint_dir == '' and args.sft_checkpoint_dir != '':
             list_dict_data, avg_kl = run_decode_augmented(decoder_name_or_path=args.decoder_name_or_path,
                                         checkpoint_dir=args.decoder_checkpoint_dir,
@@ -116,7 +117,7 @@ if __name__ == "__main__":
                                         beta=args.beta,
                                         **decoding_kwargs)
             args.path_to_result = 'kl_{}_'.format(avg_kl) + args.path_to_result if avg_kl is not None else args.path_to_result 
-            
+        # q model
         elif args.q_checkpoint_dir != '' and args.sft_checkpoint_dir == '':
             list_dict_data, avg_kl = run_decode_augmented(decoder_name_or_path=args.decoder_name_or_path,
                                         checkpoint_dir=args.decoder_checkpoint_dir,

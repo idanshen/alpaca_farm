@@ -132,7 +132,16 @@ def alpaca_leaderboard_general(
 
     all_outputs_baseline = eval_utils.load_or_convert_to_dataframe(all_outputs_baseline)
     all_outputs_new = eval_utils.load_or_convert_to_dataframe(all_outputs_new)
+
+    def remove_literal(text):
+        if text.startswith("b'") and text.endswith("'"):
+            text = text[2:-1]
+        return text
+
+    all_outputs_baseline['input'] = all_outputs_baseline['input'].apply(remove_literal)
+    all_outputs_new['input'] = all_outputs_new['input'].apply(remove_literal)
     annotator = PairwiseAutoAnnotator(annotators_config=annotators_config, **kwargs)
+    
     annotated = annotator.annotate_head2head(outputs_1=all_outputs_baseline, outputs_2=all_outputs_new, keys_to_merge=[], is_ordered=True) # TODO (seungwook): assumes that the data is ordered the same way
     all_metrics[name] = metrics.pairwise_to_winrate(preferences=[a["preference"] for a in annotated])
 

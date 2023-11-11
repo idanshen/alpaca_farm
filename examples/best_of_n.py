@@ -88,10 +88,11 @@ def run_decode(
             prompt_dict=utils.jload(prompt_dict_path),
         )
     elif 'seahorse' in dataset_path:
-        dataset = datasets.load_dataset(dataset_path, data_files = {"train": "train.json"})
+        dataset = datasets.load_dataset(dataset_path, data_files = {"train": "train.json", 'validation': 'validation.json'})
+        split_map = {"train": "train", "validation": "validation", "eval": "validation"}
         prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_dataset(
             dataset_path=dataset_path,
-            dataset=dataset[split],
+            dataset=dataset[split_map[split]],
             prompt_dict=utils.jload(prompt_dict_path),
         )
     else:
@@ -189,7 +190,6 @@ def run_decode_augmented(
     """
     dataset = datasets.load_dataset(dataset_path, dataset_name)
 
-    # TODO (seungwook): may need to fix list_dict_data as the new tasks don't have this defined
     if dataset_path == 'argilla/news-summary' :
         split_map = {"train": "test", "validation": "train", "eval": "train"} # swap train and validation b/c more train dataset is quite small and validation is bigger'
         prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_dataset(
@@ -197,7 +197,20 @@ def run_decode_augmented(
             dataset=dataset[split_map[split]],
             prompt_dict=utils.jload(prompt_dict_path),
         )
-    # TODO (seungwook): fix this for the new tasks
+    elif dataset_path == 'openai/summarize_from_feedback':
+        prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_dataset(
+            dataset_path=dataset_path,
+            dataset=dataset[split],
+            prompt_dict=utils.jload(prompt_dict_path),
+        )
+    elif 'seahorse' in dataset_path:
+        dataset = datasets.load_dataset(dataset_path, data_files = {"train": "train.json", 'validation': 'validation.json'})
+        split_map = {"train": "train", "validation": "validation", "eval": "validation"}
+        prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_dataset(
+            dataset_path=dataset_path,
+            dataset=dataset[split_map[split]],
+            prompt_dict=utils.jload(prompt_dict_path),
+        )
     else:
         prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_data_frame(
             df=pd.DataFrame(dataset[split]),

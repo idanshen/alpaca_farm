@@ -50,12 +50,6 @@ learning algorithms for comparison and modification.
 
 ## Installation
 
-To install the stable release, run
-
-```bash
-pip install alpaca-farm
-```
-
 To install from the latest commit on `main` branch, run
 
 ```bash
@@ -65,6 +59,13 @@ pip install git+https://github.com/idanshen/alpaca_farm.git
 To enable FlashAttention and other optimizations, install
 the [`flash-attn`](https://github.com/HazyResearch/flash-attention) and [`apex`](https://github.com/NVIDIA/apex)
 packages.
+
+Also, install `t5-encoder` and `alpaca-eval` from our forked repositories as they contain necessary fixes:
+```bash
+pip install git+https://github.com/hanseungwook/t5-encoder.git
+pip install git+https://github.com/hanseungwook/alpaca_eval.git
+```
+
 
 ## Simulating pairwise preference
 
