@@ -135,7 +135,7 @@ if __name__ == "__main__":
         policy = make_generative_policy(args=args, accelerator=accelerator)
         policy.eval()
 
-        reward_model = make_reward_model(args=args, accelerator=accelerator)
+        reward_model = make_reward_model(args=args, accelerator=accelerator, is_trainable=False)
         reward_model.eval()
 
         data_module: dict = data_utils.make_rl_data_module(

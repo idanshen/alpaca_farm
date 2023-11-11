@@ -150,7 +150,7 @@ class RLTrainer(object):
                         if self.args.max_grad_norm is not None:
                             self.accelerator.clip_grad_norm_(self.policy.parameters(), self.args.max_grad_norm)
                         stats_for_this_step["loss/grad_norm"] = self._compute_grad_norm()
-                        stats_list.append(stats_for_this_step)
+                    stats_list.append(stats_for_this_step)
                     self.optimizer.step()
                     self.optimizer.zero_grad(set_to_none=True)
         return common.merge_dict(stats_list, torch.stack)  # list of dict -> dict: str -> 1-D tensor

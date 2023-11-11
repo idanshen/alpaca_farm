@@ -137,6 +137,7 @@ class TrainingArguments(transformers.TrainingArguments):
         metadata={"help": "Path to static validation dataset."})
     seed: int = field(default=21, metadata={"help": "Random seed."})
     max_grad_norm: float = field(default=1.0, metadata={"help": "Max gradient norm."})
+    save_rollouts: bool = field(default=False, metadata={"help": "If True, saves rollouts to file for debug."})
 
     def __post_init__(self):
         # Super class' __post_init__ is very complicated; don't do super for now in case mess something up.
