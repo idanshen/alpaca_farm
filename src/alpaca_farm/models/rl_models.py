@@ -156,14 +156,20 @@ class Value(nn.Module, abc.ABC):
         value_head = torch.nn.Linear(hidden_size, 1)
         value_head.weight.data.zero_()
         value_head.bias.data.zero_()
-        self.value_head = value_head.to(self.head_device
-                                        )
+        self.value_head = value_head.to(self.head_device)
         self.model_parallel = True
         self.is_parallelizable = True
 
     @abc.abstractmethod
     def forward(self, queries: Tensor, query_attn_masks: Tensor, responses: Tensor) -> Dict[str, Tensor]:
         raise NotImplementedError
+    
+    def load_v_head(self, path: str, strict: bool=True):
+        # TODO (idanshen): fix this once value model saving is fixed to saving weights not the whole model
+        # value_head_ckpt = torch.load(path, map_location=self.value_head.device)
+        # self.value_head.load_state_dict(value_head_ckpt['state_dict'], strict=strict)
+        self.value_head.load_state_dict(torch.load(path, map_location=self.head_device)['state_dict'], strict=strict)
+        self.value_head.forward = common.cast_with_native_amp(self.value_head.forward, mixed_precision=self.accelerator.mixed_precision)
 
 
 class AutoregressiveValue(Value):

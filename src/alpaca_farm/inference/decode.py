@@ -28,7 +28,7 @@ from transformers import LogitsProcessorList
 from peft import PeftModel
 
 from .. import common, constants, distributed_utils, logging, torch_ops, utils
-from ..models.rl_models import make_qfunction_with_base_model, AutoregressiveQfunction
+from ..models.rl_models import make_qfunction_with_base_model, make_value_with_base_model, AutoregressiveQfunction
 
 logger = logging.get_logger(__name__)
 
@@ -36,14 +36,26 @@ class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
     """
     A hack class to process logits to integrate learned Q values
 
+    q_model: AutoregressiveQfunction, the q model to use
+    beta: float, the beta value to use for weighting the q model
+    temperature: float, the temperature to use for softmax
+    record_kl: bool, whether to record the average KL divergence between the policy and q model
+    topk: int, the number of topk to use for the q model (assumes value estimator)
+
+
     (currently assumes that the tokenizer for the policy and q model are the same)
     """
-    def __init__(self, q_model: AutoregressiveQfunction, beta: float, temperature: float = 0.7, record_kl: bool = False):
+    def __init__(self, q_model: AutoregressiveQfunction, beta: float, temperature: float=0.7, record_kl: bool=False, topk: int=0):
         # call super init
         super().__init__()
         self.q_model = q_model # assumes that q model is already moved to device (whether on 1 device or multiple)
         self.beta = beta
         self.record_kl = record_kl
+        self.topk = topk
+        
+        if topk > 0:
+            print(f'Enabling value estimator topk {self.topk} mode for LogitsProcesor')
+            
         self.last_input_ids = None
         self.past_key_values = None
         if record_kl:
@@ -52,15 +64,26 @@ class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
             self.num_points = 0
     
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
-        # TODO (seungwook): may need to pass in mask as well?
-        if self.last_input_ids is not None and (input_ids[:, :-1].shape == self.last_input_ids.shape) and torch.all(input_ids[:, :-1] == self.last_input_ids):
-            # if the last input ids are the same as the current input ids, we can reuse the past key values
-            q_outputs = self.q_model(input_ids[-1:], past_key_values=self.past_key_values, use_cache=True)
+        # TODO (seungwook): may want to implement kv caching for fve model
+        if self.topk > 0:
+            topk_ids = torch.topk(scores, self.topk, dim=-1).indices
+            input_ids = torch.cat([input_ids.repeat(self.topk, 1), topk_ids.T], dim=-1)
+        
+            q_outputs = self.q_model(input_ids, only_last=True)
+        
+            q_scores = torch.zeros_like(scores, device=scores.device)
+            q_scores[:, topk_ids] = q_outputs['values'].unsqueeze(0)
+            augmented_q_outputs = scores + self.beta * q_scores
+        
         else:
-            q_outputs = self.q_model(input_ids, only_last=True, use_cache=True)
-        self.past_key_values = q_outputs['past_key_values']
-        self.last_input_ids = input_ids
-        augmented_q_outputs = scores + self.beta * q_outputs['qvalues'].squeeze()
+            if self.last_input_ids is not None and (input_ids[:, :-1].shape == self.last_input_ids.shape) and torch.all(input_ids[:, :-1] == self.last_input_ids):
+                # if the last input ids are the same as the current input ids, we can reuse the past key values
+                q_outputs = self.q_model(input_ids[-1:], past_key_values=self.past_key_values, use_cache=True)
+            else:
+                q_outputs = self.q_model(input_ids, only_last=True, use_cache=True)
+            self.past_key_values = q_outputs['past_key_values']
+            self.last_input_ids = input_ids
+            augmented_q_outputs = scores + self.beta * q_outputs['qvalues'].squeeze()
         if self.record_kl:
             kl = self.kl(torch.softmax(scores/self.temperature, dim=-1), torch.softmax(augmented_q_outputs/self.temperature, dim=-1))
             kl = torch.clamp(kl, min=0.0, max=100.0)
@@ -389,6 +412,7 @@ def decode_prompts_with_huggingface(
     load_in_4_bits: bool = False,
     checkpoint_dir: Optional[str] = None,
     q_checkpoint_dir: Optional[str] = None,
+    v_checkpoint_dir: Optional[str] = None,
     sft_checkpoint_dir: Optional[str] = None,
     flash_attn: bool = False,
     model_and_tokenizer: Optional[Tuple] = None,
@@ -440,7 +464,7 @@ def decode_prompts_with_huggingface(
     
     # TODO (seungwook): assumes that the policy and q model base are the same (may need to change)
     logits_processor = None
-    if q_checkpoint_dir is not None and sft_checkpoint_dir is None:
+    if q_checkpoint_dir is not None:
         q_model, q_tokenizer = load_model_and_tokenizer_for_inference(
             model_name_or_path=model_name_or_path,
             cache_dir=cache_dir,
@@ -458,8 +482,26 @@ def decode_prompts_with_huggingface(
         decoding_kwargs.pop('q_head_type', None)
     
         logits_processor = QLogitsProcessor(q_model=q_model, beta=beta, temperature=decoding_args.temperature, record_kl=True)
+    elif v_checkpoint_dir is not None:
+        v_model, v_tokenizer = load_model_and_tokenizer_for_inference(
+            model_name_or_path=model_name_or_path,
+            cache_dir=cache_dir,
+            model_kwargs=dict(accelerator=accelerator, flash_attn=flash_attn),
+            load_in_4_bits=load_in_4_bits,
+            checkpoint_dir=v_checkpoint_dir,
+        )
+        v_model = accelerator.prepare(v_model)
+        v_model = make_value_with_base_model(Namespace(**decoding_kwargs), v_model, v_tokenizer, accelerator=accelerator)
+        v_model.load_v_head(os.path.join(v_checkpoint_dir, 'value_head.pt'))
+        
+        logits_processor = QLogitsProcessor(q_model=v_model, beta=beta, temperature=decoding_args.temperature, record_kl=True, topk=decoding_kwargs['topk'])
+        
+        # delete num_q_heads and q_head_type from decoding_kwargs (they should be None anyway)
+        decoding_kwargs.pop('num_q_heads', None)
+        decoding_kwargs.pop('q_head_type', None)
+        decoding_kwargs.pop('topk', None)
     
-    elif q_checkpoint_dir is None and sft_checkpoint_dir is not None:
+    if sft_checkpoint_dir is not None:
         sft_model, _ = load_model_and_tokenizer_for_inference(
             model_name_or_path=model_name_or_path,
             cache_dir=cache_dir,
