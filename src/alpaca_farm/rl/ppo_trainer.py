@@ -334,7 +334,7 @@ class PPOTrainer(rl_trainer.RLTrainer):
         stats = {key: value.item() if torch.is_tensor(value) else value for key, value in stats.items()}
         if self.accelerator.is_main_process:
             self.accelerator.log(stats, step=step_idx)
-            if self.args.output_dir is not None:
+            if self.args.output_dir is not None and self.args.save_rollouts:
                 # Store rollout data to disk to debug.
                 rollouts_to_disk = {
                     key: self.policy_tokenizer.batch_decode(

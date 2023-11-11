@@ -196,3 +196,4 @@ fve_norm_10/
 checkpoint*
 fve_q4_td_one/
 fve_q4_td_zero/
+fqe_q4_td_one_lam0.95/
