@@ -66,19 +66,28 @@ class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
         # TODO (seungwook): may want to implement kv caching for fve model
         if self.topk > 0:
+            if self.last_input_ids is not None and (input_ids[0, :-1].shape == self.last_input_ids.shape) and torch.all(input_ids[0, :-1] == self.last_input_ids):
+                # if the last input ids are the same as the current input ids, we can reuse the past key values
+                q_outputs = self.q_model(input_ids, past_key_values=self.past_key_values, use_cache=True)
+            else:
+                q_outputs = self.q_model(input_ids, only_last=True, use_cache=True)
+            self.past_key_values = q_outputs['past_key_values']
+            self.last_input_ids = input_ids[0, :]
             topk_ids = torch.topk(scores, self.topk, dim=-1).indices
             input_ids = torch.cat([input_ids.repeat(self.topk, 1), topk_ids.T], dim=-1)
-        
-            q_outputs = self.q_model(input_ids, only_last=True)
-        
+            q_outputs = self.q_model(input_ids, past_key_values=tuple((t1.expand(50,-1,-1,-1), t2.expand(50,-1,-1,-1)) for t1, t2 in q_outputs['past_key_values']), use_cache=True)
+
             q_scores = torch.zeros_like(scores, device=scores.device)
             q_scores[:, topk_ids] = q_outputs['values'].unsqueeze(0)
             augmented_q_outputs = scores + self.beta * q_scores
-        
+
+            # just to make sure
+            del q_outputs
+
         else:
             if self.last_input_ids is not None and (input_ids[:, :-1].shape == self.last_input_ids.shape) and torch.all(input_ids[:, :-1] == self.last_input_ids):
                 # if the last input ids are the same as the current input ids, we can reuse the past key values
-                q_outputs = self.q_model(input_ids[-1:], past_key_values=self.past_key_values, use_cache=True)
+                q_outputs = self.q_model(input_ids, past_key_values=self.past_key_values, use_cache=True)
             else:
                 q_outputs = self.q_model(input_ids, only_last=True, use_cache=True)
             self.past_key_values = q_outputs['past_key_values']
@@ -480,6 +489,7 @@ def decode_prompts_with_huggingface(
         # delete num_q_heads and q_head_type from decoding_kwargs
         decoding_kwargs.pop('num_q_heads', None)
         decoding_kwargs.pop('q_head_type', None)
+        decoding_kwargs.pop('topk', None)
     
         logits_processor = QLogitsProcessor(q_model=q_model, beta=beta, temperature=decoding_args.temperature, record_kl=True)
     elif v_checkpoint_dir is not None:
@@ -500,7 +510,6 @@ def decode_prompts_with_huggingface(
         decoding_kwargs.pop('num_q_heads', None)
         decoding_kwargs.pop('q_head_type', None)
         decoding_kwargs.pop('topk', None)
-    
     if sft_checkpoint_dir is not None:
         sft_model, _ = load_model_and_tokenizer_for_inference(
             model_name_or_path=model_name_or_path,

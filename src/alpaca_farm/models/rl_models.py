@@ -166,14 +166,14 @@ class Value(nn.Module, abc.ABC):
     
     def load_v_head(self, path: str, strict: bool=True):
         # TODO (idanshen): fix this once value model saving is fixed to saving weights not the whole model
-        # value_head_ckpt = torch.load(path, map_location=self.value_head.device)
-        # self.value_head.load_state_dict(value_head_ckpt['state_dict'], strict=strict)
+        value_head_ckpt = torch.load(path, map_location=self.head_device)
+        self.value_head.load_state_dict(value_head_ckpt['state_dict'], strict=strict)
         self.value_head.load_state_dict(torch.load(path, map_location=self.head_device)['state_dict'], strict=strict)
         self.value_head.forward = common.cast_with_native_amp(self.value_head.forward, mixed_precision=self.accelerator.mixed_precision)
 
 
 class AutoregressiveValue(Value):
-    def forward(self, queries: Tensor, query_attn_masks: Optional[Tensor] = None, responses: Optional[Tensor] = None, only_last: bool = False) -> Dict[str, Tensor]:
+    def forward(self, queries: Tensor, query_attn_masks: Optional[Tensor] = None, responses: Optional[Tensor] = None, only_last: bool = False, use_cache: bool = False, past_key_values: Tensor = None) -> Dict[str, Tensor]:
         if responses is not None:
             sequences = torch.cat([queries, responses], dim=1)
         else:
@@ -184,11 +184,14 @@ class AutoregressiveValue(Value):
         inputs = self.base_model.prepare_inputs_for_generation(
             input_ids=sequences,
             attention_mask=sequence_attn_masks,
-            use_cache=False,
+            use_cache=use_cache,
+            past_key_values=past_key_values,
         )
         outputs = self.base_model.model(**inputs, output_hidden_states=True)
         # get the hidden state of the last layer
-        if only_last:
+        if use_cache and past_key_values is not None:
+            last_hidden_state = outputs.hidden_states[-1].squeeze(1)
+        elif only_last:
             last_hidden_state = outputs.hidden_states[-1][:, - 1:, :].squeeze(1)
         else:
             # value[t]: \hat{V}(sequences_{:t-1}); must align with `_estimate_advantage`.
@@ -197,7 +200,10 @@ class AutoregressiveValue(Value):
         with self.accelerator.autocast():
             values = self.value_head(last_hidden_state).squeeze(-1)
 
-        return dict(values=values)
+        if use_cache:
+            return dict(values=values, past_key_values=outputs.past_key_values)
+        else:
+            return dict(values=values)
 
 
 class ActorCritic(nn.Module):

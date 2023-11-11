@@ -34,6 +34,7 @@ INSTRUCTIONS = {
     'openai/summarize_from_feedback': "Generate a one-sentence summary of this post.",
     './seahorse_data/': "Generate a one-sentence summary of this post.",
     'seahorse_data': "Generate a one-sentence summary of this post.",
+    '/data/pulkitag/models/idanshen/alpaca_farm/seahorse_data/': "Generate a one-sentence summary of this post.",
 }
 
 
