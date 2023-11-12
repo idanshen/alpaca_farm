@@ -141,7 +141,7 @@ if __name__ == "__main__":
                                         q_head_type=args.q_head_type,
                                         **decoding_kwargs)
             args.path_to_result = 'kl_{}_'.format(avg_kl) + args.path_to_result if avg_kl is not None else args.path_to_result
-        
+
         elif args.q_checkpoint_dir == '' and args.sft_checkpoint_dir == '' and args.v_checkpoint_dir != '':
             print('Using V model to generate')
             list_dict_data, avg_kl = run_decode_augmented(decoder_name_or_path=args.decoder_name_or_path,
@@ -158,7 +158,7 @@ if __name__ == "__main__":
                                         beta=args.beta,
                                         topk=args.topk,
                                         **decoding_kwargs)
-        
+            args.path_to_result = 'kl_{}_'.format(avg_kl) + args.path_to_result if avg_kl is not None else args.path_to_result
             
         else:
             raise NotImplementedError('Defining both q and sft checkpoints are not supported!')

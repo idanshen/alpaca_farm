@@ -73,12 +73,17 @@ class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
                 q_outputs = self.q_model(input_ids, only_last=True, use_cache=True)
             self.past_key_values = q_outputs['past_key_values']
             self.last_input_ids = input_ids[0, :]
-            topk_ids = torch.topk(scores, self.topk, dim=-1).indices
-            input_ids = torch.cat([input_ids.repeat(self.topk, 1), topk_ids.T], dim=-1)
-            q_outputs = self.q_model(input_ids, past_key_values=tuple((t1.expand(50,-1,-1,-1), t2.expand(50,-1,-1,-1)) for t1, t2 in q_outputs['past_key_values']), use_cache=True)
 
             q_scores = torch.zeros_like(scores, device=scores.device)
-            q_scores[:, topk_ids] = q_outputs['values'].unsqueeze(0)
+            topk_ids = torch.topk(scores, self.topk, dim=-1).indices
+
+            batch_size = 1
+            for i in range(0, topk_ids.shape[1],batch_size):
+                curr_topk_ids = topk_ids[:, i:i + batch_size]
+                curr_input_ids = torch.cat([input_ids.repeat(curr_topk_ids.shape[1], 1), curr_topk_ids.T], dim=-1)
+                q_outputs = self.q_model(curr_input_ids, past_key_values=tuple((t1.expand(curr_topk_ids.shape[1],-1,-1,-1), t2.expand(curr_topk_ids.shape[1],-1,-1,-1)) for t1, t2 in self.past_key_values), use_cache=True)
+                q_scores[:, curr_topk_ids] = q_outputs['values'].unsqueeze(0)
+
             augmented_q_outputs = scores + self.beta * q_scores
 
             # just to make sure
