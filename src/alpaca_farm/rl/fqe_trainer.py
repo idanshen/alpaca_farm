@@ -107,6 +107,27 @@ class FQETrainer(rl_trainer.RLTrainer):
 
         return dict(returns=returns)
 
+    def _estimate_advantage(self, rewards: Tensor, values: Tensor) -> Dict[str, Tensor]:
+        """Generalized advantage estimation.
+
+        Reference:
+            https://arxiv.org/abs/1506.02438
+        """
+        lam = 1.0
+        if self.args.whiten_rewards:
+            rewards = torch_ops.whiten(rewards, shift_mean=False)
+        lastgaelam = 0
+        advantages_reversed = []
+        gen_length = self.args.response_len
+        for t in reversed(range(gen_length)):
+            nextvalues = values[:, t + 1] if t < gen_length - 1 else 0.0
+            delta = rewards[:, t] + self.args.gamma * nextvalues - values[:, t]
+            lastgaelam = delta + self.args.gamma * lam * lastgaelam
+            advantages_reversed.append(lastgaelam)
+        advantages = torch.stack(advantages_reversed[::-1], dim=1)
+        returns = advantages + values
+        return dict(returns=returns)
+
     @torch.inference_mode()
     def rollout(self, queries_data) -> Dict[str, Tensor]:
         """Rollout trajectories with policy.
@@ -155,6 +176,11 @@ class FQETrainer(rl_trainer.RLTrainer):
                 # Evaluate logprobs of the samples.
                 rollouts_batch = {"queries": queries, "query_attn_masks": query_attn_masks, "responses": responses}
 
+            # Evaluate current estimated value of the samples.
+            q_value_outputs = self.policy(**rollouts_batch)
+            q_value_outputs["values"] = torch.gather(q_value_outputs.pop("qvalues"), dim=2, index=responses.unsqueeze(-1)).squeeze(-1)
+            rollouts_batch.update(q_value_outputs)
+
             # Evaluate reward of the samples.
             text_queries, text_responses = tuple(
                 self.policy_tokenizer.batch_decode(tensor, skip_special_tokens=True, clean_up_tokenization_spaces=True)
@@ -199,8 +225,9 @@ class FQETrainer(rl_trainer.RLTrainer):
         # Items in dict need to be of same shape.
         rollouts = common.merge_dict(rollouts, merge_fn=torch.cat)
         # Estimating advantages outside the loop gives more samples for reward normalization.
-        returns = self._estimate_mc_return(
+        returns = self._estimate_advantage(
             rewards=rollouts["shaped_rewards"].to(self.accelerator.device),
+            values=rollouts["values"].to(self.accelerator.device),
         )
         returns = {key: value.cpu() for key, value in returns.items()}
         return {**rollouts, **returns}
@@ -278,11 +305,15 @@ class FQETrainer(rl_trainer.RLTrainer):
         cql_loss = torch.sum(logits.softmax(dim=-1) * q_values_logits.log_softmax(dim=-1), dim=2).mean()
 
         qf_losses = (q_preds - target_q_values) ** 2.0
-        loss = qf_losses.mean() - self.kl_ctl.value * cql_loss
+        loss_mask = responses != self.policy_tokenizer.pad_token_id
+        denom = loss_mask.sum(dim=1)
+        per_sample_loss = (qf_losses * loss_mask.detach()).sum(dim=1) / denom
+        loss = per_sample_loss.mean() - self.kl_ctl.value * cql_loss
 
         with torch.no_grad():
             entropy = -(q_values_logits.softmax(dim=-1) * q_values_logits.log_softmax(dim=-1)).sum(dim=-1).mean()
-            return_mean, return_var = returns.mean(), returns.var(unbiased=False)
+            return_var = returns.var(unbiased=False)
+            return_mean = (returns.sum(dim=1) / loss_mask.sum(dim=1)).mean()
             value_mean, value_var = q_preds.mean(), q_preds.var(unbiased=False)
 
         stats = dict(
@@ -314,7 +345,7 @@ class FQETrainer(rl_trainer.RLTrainer):
         stats = {key: value.item() if torch.is_tensor(value) else value for key, value in stats.items()}
         if self.accelerator.is_main_process:
             self.accelerator.log(stats, step=step_idx)
-            if self.args.output_dir is not None:
+            if self.args.output_dir is not None and self.args.save_rollouts:
                 # Store rollout data to disk to debug.
                 rollouts_to_disk = {
                     key: self.policy_tokenizer.batch_decode(
