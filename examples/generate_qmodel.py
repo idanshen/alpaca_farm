@@ -91,7 +91,7 @@ if __name__ == "__main__":
     else:
         print('Start generating data')
         if args.q_checkpoint_dir == '' and args.sft_checkpoint_dir == '' and args.v_checkpoint_dir == '': #and no multiple lora checkpoints
-            print('No q model checkpoint dir is provided, using the default decoder model')
+            print('Using only decoder_checkpoint (base or SFT) to generate')
 
             list_dict_data = run_decode(decoder_name_or_path=args.decoder_name_or_path,
                                         checkpoint_dir=args.decoder_checkpoint_dir,
@@ -107,7 +107,7 @@ if __name__ == "__main__":
             avg_kl = None
             
         elif args.q_checkpoint_dir == '' and args.sft_checkpoint_dir != '' and args.v_checkpoint_dir == '':
-            print('Using SFT model to generate')
+            print('Using PPO and SFT model to generate')
             list_dict_data, avg_kl = run_decode_augmented(decoder_name_or_path=args.decoder_name_or_path,
                                         checkpoint_dir=args.decoder_checkpoint_dir,
                                         sft_checkpoint_dir=args.sft_checkpoint_dir,
