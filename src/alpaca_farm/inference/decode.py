@@ -28,7 +28,7 @@ from transformers import LogitsProcessorList
 from peft import PeftModel
 
 from .. import common, constants, distributed_utils, logging, torch_ops, utils
-from ..models.rl_models import make_qfunction_with_base_model, make_value_with_base_model, AutoregressiveQfunction
+from ..models.rl_models import make_qfunction_with_base_model, make_value_with_base_model, AutoregressiveQfunction, AutoregressiveValue
 
 logger = logging.get_logger(__name__)
 
@@ -45,10 +45,10 @@ class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
 
     (currently assumes that the tokenizer for the policy and q model are the same)
     """
-    def __init__(self, q_model: AutoregressiveQfunction, beta: float, temperature: float=0.7, record_kl: bool=False, topk: int=0):
+    def __init__(self, model: Union[AutoregressiveQfunction, AutoregressiveValue], beta: float, temperature: float=0.7, record_kl: bool=False, topk: int=0):
         # call super init
         super().__init__()
-        self.q_model = q_model # assumes that q model is already moved to device (whether on 1 device or multiple)
+        self.model = model # assumes that q model is already moved to device (whether on 1 device or multiple)
         self.beta = beta
         self.record_kl = record_kl
         self.topk = topk
@@ -64,13 +64,14 @@ class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
             self.num_points = 0
     
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
-        # TODO (seungwook): may want to implement kv caching for fve model
-        if self.topk > 0:
+        if isinstance(self.model, AutoregressiveValue):
+            assert self.topk != 0, 'topk must be set for value estimator'
+
             if self.last_input_ids is not None and (input_ids[0, :-1].shape == self.last_input_ids.shape) and torch.all(input_ids[0, :-1] == self.last_input_ids):
                 # if the last input ids are the same as the current input ids, we can reuse the past key values
-                q_outputs = self.q_model(input_ids, past_key_values=self.past_key_values, use_cache=True)
+                q_outputs = self.model(input_ids, past_key_values=self.past_key_values, use_cache=True)
             else:
-                q_outputs = self.q_model(input_ids, only_last=True, use_cache=True)
+                q_outputs = self.model(input_ids, only_last=True, use_cache=True)
             self.past_key_values = q_outputs['past_key_values']
             self.last_input_ids = input_ids[0, :]
 
@@ -78,36 +79,47 @@ class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
             topk_ids = torch.topk(scores, self.topk, dim=-1).indices
 
             batch_size = 1
-            for i in range(0, topk_ids.shape[1],batch_size):
+            for i in range(0, topk_ids.shape[1], batch_size):
                 curr_topk_ids = topk_ids[:, i:i + batch_size]
                 curr_input_ids = torch.cat([input_ids.repeat(curr_topk_ids.shape[1], 1), curr_topk_ids.T], dim=-1)
-                q_outputs = self.q_model(curr_input_ids, past_key_values=tuple((t1.expand(curr_topk_ids.shape[1],-1,-1,-1), t2.expand(curr_topk_ids.shape[1],-1,-1,-1)) for t1, t2 in self.past_key_values), use_cache=True)
+                if batch_size > 1:
+                    q_outputs = self.model(curr_input_ids, past_key_values=tuple((t1.expand(curr_topk_ids.shape[1], -1, -1, -1), t2.expand(curr_topk_ids.shape[1], -1, -1, -1)) for t1, t2 in self.past_key_values), use_cache=True)
+                else:
+                    q_outputs = self.model(curr_input_ids, past_key_values=self.past_key_values, use_cache=True)
                 q_scores[:, curr_topk_ids] = q_outputs['values'].unsqueeze(0)
 
             augmented_q_outputs = scores + self.beta * q_scores
 
-            # just to make sure
-            del q_outputs
-
-        else:
+        elif isinstance(self.model, AutoregressiveQfunction):
             if self.last_input_ids is not None and (input_ids[:, :-1].shape == self.last_input_ids.shape) and torch.all(input_ids[:, :-1] == self.last_input_ids):
                 # if the last input ids are the same as the current input ids, we can reuse the past key values
-                q_outputs = self.q_model(input_ids, past_key_values=self.past_key_values, use_cache=True)
+                q_outputs = self.model(input_ids, past_key_values=self.past_key_values, use_cache=True)
             else:
-                q_outputs = self.q_model(input_ids, only_last=True, use_cache=True)
+                q_outputs = self.model(input_ids, only_last=True, use_cache=True)
             self.past_key_values = q_outputs['past_key_values']
             self.last_input_ids = input_ids
-            augmented_q_outputs = scores + self.beta * q_outputs['qvalues'].squeeze()
+
+            if self.topk > 0:
+                topk_ids = torch.topk(scores, 20, dim=-1).indices
+                augmented_q_outputs = torch.clone(scores)
+                augmented_q_outputs[:, topk_ids] = scores[:, topk_ids] + self.beta * q_outputs['qvalues'][:, topk_ids]
+            else:
+                augmented_q_outputs = scores + self.beta * q_outputs['qvalues']
+
+        else:
+            raise NotImplementedError('model must be either AutoregressiveQfunction or AutoregressiveValue')
+
         if self.record_kl:
             kl = self.kl(torch.softmax(scores/self.temperature, dim=-1), torch.softmax(augmented_q_outputs/self.temperature, dim=-1))
             kl = torch.clamp(kl, min=0.0, max=100.0)
             self.average_kl = (self.average_kl * self.num_points + kl) / (self.num_points + 1)
             self.num_points += 1
+
         return augmented_q_outputs
     
     def _apply(self, fn):
         super()._apply(fn)
-        self.q_model = self.q_model._apply(fn)
+        self.model = self.model._apply(fn)
         return self
 
     @staticmethod
@@ -490,13 +502,14 @@ def decode_prompts_with_huggingface(
         # q_model.load_state_dict(torch.load(os.path.join(q_checkpoint_dir, 'adapter_model/q_head.pt'), map_location=q_model.device))
         # TODO (seungwook): depending on the type of q head (weights or whole pickled model), load differently
         q_model.load_q_head(os.path.join(q_checkpoint_dir, 'q_head.pt'))
-        
+
+        logits_processor = QLogitsProcessor(model=q_model, beta=beta, temperature=decoding_args.temperature, record_kl=True, topk=decoding_kwargs['topk'])
+
         # delete num_q_heads and q_head_type from decoding_kwargs
         decoding_kwargs.pop('num_q_heads', None)
         decoding_kwargs.pop('q_head_type', None)
         decoding_kwargs.pop('topk', None)
     
-        logits_processor = QLogitsProcessor(q_model=q_model, beta=beta, temperature=decoding_args.temperature, record_kl=True)
     elif v_checkpoint_dir is not None:
         v_model, v_tokenizer = load_model_and_tokenizer_for_inference(
             model_name_or_path=model_name_or_path,
@@ -509,7 +522,7 @@ def decode_prompts_with_huggingface(
         v_model = make_value_with_base_model(Namespace(**decoding_kwargs), v_model, v_tokenizer, accelerator=accelerator)
         v_model.load_v_head(os.path.join(v_checkpoint_dir, 'value_head.pt'))
         
-        logits_processor = QLogitsProcessor(q_model=v_model, beta=beta, temperature=decoding_args.temperature, record_kl=True, topk=decoding_kwargs['topk'])
+        logits_processor = QLogitsProcessor(model=v_model, beta=beta, temperature=decoding_args.temperature, record_kl=True, topk=decoding_kwargs['topk'])
         
         # delete num_q_heads and q_head_type from decoding_kwargs (they should be None anyway)
         decoding_kwargs.pop('num_q_heads', None)
