@@ -13,6 +13,7 @@
 # limitations under the License.
 import os.path
 from functools import partial
+from dataclasses import dataclass
 
 import accelerate
 import torch
@@ -33,7 +34,7 @@ class RewardConfig(transformers.PretrainedConfig):
         super(RewardConfig, self).__init__(**kwargs)
         self.backbone_model_name_or_path = backbone_model_name_or_path
 
-
+@dataclass
 class RewardModelOutput(ModelOutput):
     rewards: Tensor = None
 

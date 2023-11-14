@@ -46,7 +46,7 @@ if __name__ == "__main__":
         x2['output'] = x2['output'].split('.')[0] + '.'
 
     print("Finished loading outputs, start evaluating") # TODO (seungwook): fix config files
-    alpaca_leaderboard_general([list_dict_data1, list_dict_data2], is_print_metrics=True, annotators_config = "annotator_pool_v0/configs.yaml", name=args.exp_name)# , **decoding_kwargs)
+    alpaca_leaderboard_general([list_dict_data1, list_dict_data2], is_print_metrics=True, is_add_reference_methods=False, annotators_config = "annotator_pool_v0/configs_summary.yaml", name=args.exp_name)# , **decoding_kwargs)
 
     """
                                             n_draws  n_total  n_wins  n_wins_base  standard_error  win_rate
