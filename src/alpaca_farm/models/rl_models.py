@@ -261,6 +261,19 @@ class Qfunction(nn.Module, abc.ABC):
             w_h.weight.data.zero_()
             w_h.bias.data.zero_()
             self.q_head = w_h.to(self.head_device)
+        elif args.q_head_type == 'dueling':
+            # Dueling network from https://arxiv.org/abs/1511.06581
+            self.advantage_head = torch.nn.Linear(self.feature_size, len(base_tokenizer)*self.args.num_q_heads)
+            self.advantage_head.weight.data.zero_()
+            self.advantage_head.bias.data.zero_()
+            self.advantage_head = self.advantage_head.to(self.head_device)
+            self.value_head = torch.nn.Linear(self.feature_size, 1)
+            self.value_head.weight.data.zero_()
+            self.value_head.bias.data.zero_()
+            self.value_head = self.value_head.to(self.head_device)
+            self.q_head = torch.nn.ModuleList([self.advantage_head, self.value_head])
+        else:
+            raise NotImplementedError
 
         self.model_parallel = True
         self.is_parallelizable = True
@@ -311,6 +324,13 @@ class AutoregressiveQfunction(Qfunction):
                 h_features = self.q_head(last_hidden_state)  # from B x L x H to B x L x H'
                 t_features = self.token_features  # T x H'
                 qvalues = h_features @ t_features.T  # B x L x T
+            elif self.args.q_head_type == "dueling":
+                advantage = self.advantage_head(last_hidden_state)
+                value = self.value_head(last_hidden_state)
+                qvalues = value + advantage - advantage.mean(dim=-1, keepdim=True)
+                if self.args.num_q_heads > 1:
+                    qvalues = qvalues.view(-1, self.args.num_q_heads, len(self.base_tokenizer))
+
         if use_cache:
             return dict(qvalues=qvalues, past_key_values=outputs.past_key_values)
         else:
