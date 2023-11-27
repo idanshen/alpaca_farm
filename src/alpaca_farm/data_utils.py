@@ -202,6 +202,14 @@ def make_rl_data_module(
     tokenizer, _ = tokenizer # only use policy tokenizer for data module (not reward tokenizer)
     prompt_dict = utils.jload(data_args.prompt_dict_path)
 
+    # for Quark training
+    if getattr(training_args, "num_reward_tokens", 0) > 0 and not getattr(
+        training_args, "train_on_best_quantile", True
+    ):
+        prompt_postprocessor = RewardConditioningPromptPostprocessor()
+    else:
+        prompt_postprocessor = None
+
     if not training_args.static_dataset:
         if data_args.dataset_path == 'imdb':
             alpaca_instructions = datasets.load_dataset(data_args.dataset_path) # doesn't require separate path and name
@@ -236,14 +244,6 @@ def make_rl_data_module(
         else:
             train_df = pd.concat([pd.DataFrame(alpaca_instructions[split]) for split in data_args.train_splits])
             eval_df = pd.concat([pd.DataFrame(alpaca_instructions[split]) for split in data_args.eval_splits])
-
-        # for Quark training
-        if getattr(training_args, "num_reward_tokens", 0) > 0 and not getattr(
-            training_args, "train_on_best_quantile", True
-        ):
-            prompt_postprocessor = RewardConditioningPromptPostprocessor()
-        else:
-            prompt_postprocessor = None
 
         # instantiate dataset class depending on the dataset
         if data_args.dataset_path in {'argilla/news-summary', 'openai/summarize_from_feedback'} or 'seahorse' in data_args.dataset_path:
