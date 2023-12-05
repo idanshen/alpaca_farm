@@ -116,7 +116,7 @@ def score_sequences_with_huggingface(
     """
     model, tokenizer = load_model_and_tokenizer_for_inference(
         model_name_or_path=model_name_or_path,
-        model_cls=reward_model.RewardModel,
+        model_cls=reward_model.RewardModel if model_name_or_path == 'huggyllama/llama-7b' else reward_model.RewardNoLoraModel,
         cache_dir=cache_dir,
         model_kwargs=dict(
             torch_dtype=utils.convert_str_dtype_to_torch_dtype(mixed_precision),

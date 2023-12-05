@@ -226,6 +226,10 @@ def load_model_and_tokenizer_for_inference(
         common.let_model_save_mem_when_zero_grad(model)
     else:
         assert checkpoint_dir is None, "checkpoint_dir (path to lora weights) is defined, but not loading them bc load_in_4_bits is False"
+        if 'accelerator' in model_kwargs: # don't need accelerator
+            model_kwargs.pop('accelerator')
+        if 'flash_attn' in model_kwargs: # don't need flash_attn
+            model_kwargs.pop('flash_attn')
         model = model_cls.from_pretrained(model_name_or_path, **model_kwargs).eval()
         accelerator.prepare(model)
 

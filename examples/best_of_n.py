@@ -24,6 +24,7 @@ import numpy as np
 from alpaca_farm import data_preprocessor, distributed_utils, utils
 from alpaca_farm.inference import decode, score
 from alpaca_farm.types import AnyPath, AnyPathOrNone
+from alpaca_farm import accelerate_patch
 
 sample_mode_formatter = "temperature={temperature},max_new_tokens={max_new_tokens},seed={seed}"
 
@@ -326,6 +327,9 @@ def run_rerank(
 def run_best_of_n(
     decoder_name_or_path: AnyPath,
     scorer_name_or_path: AnyPath,
+    decoder_checkpoint_dir: Optional[str] = None,
+    dataset_path: Optional[str] = "tatsu-lab/alpaca_farm",
+    dataset_name: Optional[str] = "alpaca_farm_evaluation",
     output_path: AnyPathOrNone = None,
     prompt_dict_path=pathlib.Path(__file__).parent / "prompts" / "v0_inputs_noinputs.json",
     split="val",
@@ -334,23 +338,37 @@ def run_best_of_n(
     temperature=1.0,
     num_return_sequences=4,
     max_new_tokens=300,
+    load_in_4_bits=False,
     mixed_precision=None,
     tf32=False,
     flash_attn=False,
 ):
+    
+    accelerator = accelerate_patch.MyAccelerator(
+        mixed_precision=mixed_precision,
+        log_with=[],
+    )
+    
     """Chain together decoding and rerank."""
     decode_return_list_dict_data = run_decode(
         decoder_name_or_path=decoder_name_or_path,
+        checkpoint_dir=decoder_checkpoint_dir,
         prompt_dict_path=prompt_dict_path,
+        dataset_path=dataset_path,
+        dataset_name=dataset_name,
         split=split,
         max_instances=max_instances,
         per_device_batch_size=per_device_batch_size,
         temperature=temperature,
         num_return_sequences=num_return_sequences,
         max_new_tokens=max_new_tokens,
-        mixed_precision=mixed_precision,
+        # mixed_precision=mixed_precision,
+        load_in_4_bits=load_in_4_bits,
         tf32=tf32,
+        accelerator=accelerator,
     )
+    
+    mixed_precision = 'bf16' if 'flant5' in scorer_name_or_path else 'fp16' #manual override for flan-t5 bf16
     rerank_return_list_dict_data = run_rerank(
         list_dict_data_or_path=decode_return_list_dict_data,
         scorer_name_or_path=scorer_name_or_path,

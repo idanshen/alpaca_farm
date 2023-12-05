@@ -35,6 +35,7 @@ INSTRUCTIONS = {
     './seahorse_data/': "Generate a one-sentence summary of this post.",
     'seahorse_data': "Generate a one-sentence summary of this post.",
     '/data/pulkitag/models/idanshen/alpaca_farm/seahorse_data/': "Generate a one-sentence summary of this post.",
+    '/mnt/nfs_csail/models/swhan/alpaca_farm/seahorse_data/': "Generate a one-sentence summary of this post.",
 }
 
 
