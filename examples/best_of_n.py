@@ -368,6 +368,10 @@ def run_best_of_n(
         accelerator=accelerator,
     )
     
+    # save intermediate decoding results in numpy
+    np.save(f'decode_bestof{num_return_sequences}_results.npy', decode_return_list_dict_data)
+    print('Saved intermediate decoding results in numpy!')
+    
     mixed_precision = 'bf16' if 'flant5' in scorer_name_or_path else 'fp16' #manual override for flan-t5 bf16
     rerank_return_list_dict_data = run_rerank(
         list_dict_data_or_path=decode_return_list_dict_data,
