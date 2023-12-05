@@ -112,16 +112,16 @@ class FVETrainer(rl_trainer.RLTrainer):
         Reference:
             https://arxiv.org/abs/1506.02438
         """
-        lam = 1.0
         if self.args.whiten_rewards:
             rewards = torch_ops.whiten(rewards, shift_mean=False)
         lastgaelam = 0
         advantages_reversed = []
         gen_length = self.args.response_len
+
         for t in reversed(range(gen_length)):
             nextvalues = values[:, t + 1] if t < gen_length - 1 else 0.0
             delta = rewards[:, t] + self.args.gamma * nextvalues - values[:, t]
-            lastgaelam = delta + self.args.gamma * lam * lastgaelam
+            lastgaelam = delta + self.args.gamma * self.args.lam * lastgaelam
             advantages_reversed.append(lastgaelam)
         advantages = torch.stack(advantages_reversed[::-1], dim=1)
         returns = advantages + values
@@ -144,7 +144,9 @@ class FVETrainer(rl_trainer.RLTrainer):
         # Give up dropout throughout.
         # self._make_fsdp_happy()
 
+        self.ref_policy.eval()
         self.reward_model.eval()
+        self.policy.train()
 
         rollouts = []
         for batch_idx, batch in tqdm.tqdm(
@@ -203,7 +205,7 @@ class FVETrainer(rl_trainer.RLTrainer):
                 s = common.prepare_inputs(s, device=self.accelerator.device)
                 r = self.reward_model(**s)
                 reward_outputs_list.append(r.rewards)
-
+            
             reward_outputs = torch.cat(reward_outputs_list, dim=0)
             reward_outputs = {'rewards': reward_outputs}
 
@@ -219,20 +221,18 @@ class FVETrainer(rl_trainer.RLTrainer):
             )
             rollouts_batch.update(shape_reward_outputs)
 
-            rollouts_batch_cpu = {key: value.cpu() for key, value in rollouts_batch.items()}
+            rollouts_batch_cpu = {key: value for key, value in rollouts_batch.items()}
             rollouts.append(rollouts_batch_cpu)
 
         # Items in dict need to be of same shape.
         rollouts = common.merge_dict(rollouts, merge_fn=torch.cat)
         # Estimating advantages outside the loop gives more samples for reward normalization.
-        # returns = self._estimate_mc_return(
-        #     rewards=rollouts["shaped_rewards"].to(self.accelerator.device),
-        # )
+        rollouts["values"][rollouts['responses'] == self.policy_tokenizer.pad_token_id] = 0
         returns = self._estimate_advantage(
             rewards=rollouts["shaped_rewards"].to(self.accelerator.device),
-            values=rollouts["values"].to(self.accelerator.device),
+            values=rollouts["values"].to(self.accelerator.device).detach(),
         )
-        returns = {key: value.cpu() for key, value in returns.items()}
+        returns = {key: value for key, value in returns.items()}
         return {**rollouts, **returns}
 
     def post_reward(self, reward_outputs: Dict[str, Tensor], responses: Tensor) -> Dict[str, Tensor]:
@@ -264,13 +264,12 @@ class FVETrainer(rl_trainer.RLTrainer):
         return reward_outputs
 
     def compute_loss(self, rollouts: Dict[str, Tensor]) -> Tuple[Tensor, Dict]:
-        returns, rewards, queries, query_attn_masks, responses = common.prepare_inputs(
-            common.unpack_dict(
+        self.policy.train()
+
+        returns, rewards, queries, query_attn_masks, responses = common.unpack_dict(
                 rollouts,
                 keys=("returns", "shaped_rewards", "queries", "query_attn_masks", "responses"),
-            ),
-            device=self.accelerator.device,
-        )
+            )
         batch_size = responses.size(0)
         if batch_size == 1:
             # remove all padding tokens. When pad_token_id == eos_token_id it will lead to index off by one bug
@@ -283,22 +282,14 @@ class FVETrainer(rl_trainer.RLTrainer):
         values = self.policy(queries, query_attn_masks, responses)["values"]
 
         with torch.no_grad():
-            # Compute the Q-values for the next states
-            if self.args.td_one:
-                # compute TD(1) targets
-                target_values = returns
-            else:
-                # compute TD(0) targets
-                #  get values for next states by shift action indices by 1, and append zero at the end
-                next_values = values[:, 1:].detach()
-                next_values = torch.cat([next_values, torch.zeros(next_values.shape[0], 1).to(self.accelerator.device)], dim=1)
-                # 1-step TD target
-                target_values = rewards + self.args.gamma * next_values
+            # Compute the Values for the next states
+            target_values = returns
 
-        qf_losses = (values - target_values) ** 2.0
+        v_losses = (values - target_values) ** 2.0
+        # Taking care of padding in case of batch size >1
         loss_mask = responses != self.policy_tokenizer.pad_token_id
         denom = loss_mask.sum(dim=1)
-        per_sample_loss = (qf_losses * loss_mask.detach()).sum(dim=1) / denom
+        per_sample_loss = (v_losses * loss_mask.detach()).sum(dim=1) / denom
         loss = per_sample_loss.mean()
 
         with torch.no_grad():
@@ -370,21 +361,15 @@ class FVETrainer(rl_trainer.RLTrainer):
                 query_attn_masks = query_attn_masks[queries != self.policy_tokenizer.pad_token_id].view(1, -1)
                 queries = queries[queries != self.policy_tokenizer.pad_token_id].view(1, -1)
 
-            # # Remove the last token from the queries
-            # queries = queries[:, :-1]
-            # query_attn_masks = query_attn_masks[:, :-1]
-            # last_token = queries[:, -1]
-
             # Start evaluation.
             self.policy.eval()
             self._make_fsdp_happy()  # we can keep this b/c it automatically checks if fsdp or not
 
-            # Compute the Q-values for the responses
+            # Compute the Values for the responses
             values = self.policy(queries, query_attn_masks, only_last=True)["values"]
-            # values = torch.gather(q_values.squeeze(1), dim=1, index=last_token.unsqueeze(-1)).squeeze(-1)
 
             # Compute the loss
-            assert values.shape == target_values.shape
+            assert values.shape == target_values.shape, f"{values.shape} != {target_values.shape}"
             batch_loss = (values - target_values) ** 2.0
             aggregated_loss.append(batch_loss)
 

@@ -113,16 +113,16 @@ class FQETrainer(rl_trainer.RLTrainer):
         Reference:
             https://arxiv.org/abs/1506.02438
         """
-        lam = 1.0
         if self.args.whiten_rewards:
             rewards = torch_ops.whiten(rewards, shift_mean=False)
         lastgaelam = 0
         advantages_reversed = []
         gen_length = self.args.response_len
+
         for t in reversed(range(gen_length)):
             nextvalues = values[:, t + 1] if t < gen_length - 1 else 0.0
             delta = rewards[:, t] + self.args.gamma * nextvalues - values[:, t]
-            lastgaelam = delta + self.args.gamma * lam * lastgaelam
+            lastgaelam = delta + self.args.gamma * self.args.lam * lastgaelam
             advantages_reversed.append(lastgaelam)
         advantages = torch.stack(advantages_reversed[::-1], dim=1)
         returns = advantages + values
@@ -147,6 +147,7 @@ class FQETrainer(rl_trainer.RLTrainer):
 
         self.ref_policy.eval()
         self.reward_model.eval()
+        self.policy.train()
 
         rollouts = []
         for batch_idx, batch in tqdm.tqdm(
@@ -178,8 +179,8 @@ class FQETrainer(rl_trainer.RLTrainer):
 
             # Evaluate current estimated value of the samples.
             q_value_outputs = self.policy(**rollouts_batch)
-            q_value_outputs["values"] = torch.gather(q_value_outputs.pop("qvalues"), dim=2, index=responses.unsqueeze(-1)).squeeze(-1)
-            rollouts_batch.update(q_value_outputs)
+            # q_value_outputs["values"] = torch.gather(q_value_outputs.pop("qvalues"), dim=2, index=responses.unsqueeze(-1)).squeeze(-1)
+            rollouts_batch.update({"values": q_value_outputs["values"].squeeze(-1)})
 
             # Evaluate reward of the samples.
             text_queries, text_responses = tuple(
@@ -219,18 +220,23 @@ class FQETrainer(rl_trainer.RLTrainer):
             )
             rollouts_batch.update(shape_reward_outputs)
 
-            rollouts_batch_cpu = {key: value.cpu() for key, value in rollouts_batch.items()}
+            rollouts_batch_cpu = {key: value for key, value in rollouts_batch.items()}
             rollouts.append(rollouts_batch_cpu)
 
         # Items in dict need to be of same shape.
         rollouts = common.merge_dict(rollouts, merge_fn=torch.cat)
         # Estimating advantages outside the loop gives more samples for reward normalization.
+        rollouts["values"][rollouts['responses'] == self.policy_tokenizer.pad_token_id] = 0
         returns = self._estimate_advantage(
             rewards=rollouts["shaped_rewards"].to(self.accelerator.device),
-            values=rollouts["values"].to(self.accelerator.device),
+            values=rollouts["values"].to(self.accelerator.device).detach(),
         )
-        returns = {key: value.cpu() for key, value in returns.items()}
-        return {**rollouts, **returns}
+        td_one_returns = self._estimate_mc_return(
+            rewards=rollouts["shaped_rewards"].to(self.accelerator.device).detach(),
+        )
+        td_one_returns = {key+"_td_one": value for key, value in td_one_returns.items()}
+        returns = {key: value for key, value in returns.items()}
+        return {**rollouts, **returns, **td_one_returns}
 
     def post_reward(self, reward_outputs: Dict[str, Tensor], responses: Tensor) -> Dict[str, Tensor]:
         """Assign bad reward values to sequences which didn't stop properly."""
@@ -261,54 +267,70 @@ class FQETrainer(rl_trainer.RLTrainer):
         return reward_outputs
 
     def compute_loss(self, rollouts: Dict[str, Tensor]) -> Tuple[Tensor, Dict]:
-        returns, rewards, queries, query_attn_masks, responses = common.prepare_inputs(
-            common.unpack_dict(
+        self.policy.train()
+
+        returns, returns_td_one, rewards, queries, query_attn_masks, responses = common.unpack_dict(
                 rollouts,
-                keys=("returns", "shaped_rewards", "queries", "query_attn_masks", "responses"),
-            ),
-            device=self.accelerator.device,
-        )
+                keys=("returns", "returns_td_one", "shaped_rewards", "queries", "query_attn_masks", "responses"),
+            )
         batch_size = responses.size(0)
+
         if batch_size == 1:
             # remove all padding tokens. When pad_token_id == eos_token_id it will lead to index off by one bug
             returns = returns[responses != self.policy_tokenizer.pad_token_id].view(1, -1)
+            returns_td_one = returns_td_one[responses != self.policy_tokenizer.pad_token_id].view(1, -1)
             rewards = rewards[responses != self.policy_tokenizer.pad_token_id].view(1, -1)
             responses = responses[responses != self.policy_tokenizer.pad_token_id].view(1, -1)
             query_attn_masks = query_attn_masks[queries != self.policy_tokenizer.pad_token_id].view(1, -1)
             queries = queries[queries != self.policy_tokenizer.pad_token_id].view(1, -1)
+
         # Compute the Q-values for the responses
-        q_values = self.policy(queries, query_attn_masks, responses)["qvalues"]
+        outputs = self.policy(queries, query_attn_masks, responses)
+        q_values = outputs["qvalues"]
         q_values_logits = q_values / self.args.temperature
         q_preds = torch.gather(q_values, dim=2, index=responses.unsqueeze(-1)).squeeze(-1)
+        # After gather, both Q and V have the expected values for every response token.
 
         with torch.no_grad():
             # Sample rollouts using the reference policy.
-            rollouts_batch = {"queries": queries, "query_attn_masks": query_attn_masks, "responses": responses}
-            ref_policy_outputs = self.ref_policy(**rollouts_batch, temperature=self.args.temperature)
-            logits, = common.unpack_dict(ref_policy_outputs, keys=("logits",))
+            if self.kl_ctl.value > 0:
+                rollouts_batch = {"queries": queries, "query_attn_masks": query_attn_masks, "responses": responses}
+                ref_policy_outputs = self.ref_policy(**rollouts_batch, temperature=self.args.temperature)
+                logits, = common.unpack_dict(ref_policy_outputs, keys=("logits",))
+
+            # Compute the Advantage term from https://arxiv.org/abs/2305.18161
+            #probs = logits.softmax(dim=-1)
+            #regularizer = self.args.gamma * (probs * outputs["next_advantage"].detach()).sum(dim=-1)
+            #regularizer = torch.cat([regularizer[:, 1:], torch.zeros_like(regularizer[:, -1:])], dim=1)
+
             # Compute the KL-divergence between the reference policy and the Q-value induced policy
-            kl_div = (q_values_logits.softmax(dim=-1) * (
-                        q_values_logits.log_softmax(dim=-1) - logits.log_softmax(dim=-1))).sum(dim=-1).mean()
+            # kl_div = (q_values_logits.softmax(dim=-1) * (
+            #             q_values_logits.log_softmax(dim=-1) - logits.log_softmax(dim=-1))).sum(dim=-1).mean()
 
             # Compute the Q-values for the next states
-            if self.args.td_one:
-                # compute TD(1) targets
-                target_q_values = returns
-            else:
-                # compute TD(0) targets
-                #  get Q-values for next states by shift action indices by 1, and append zero at the end
-                next_q_values = q_values[:, 1:, :].detach()
-                next_q_values = torch.cat([next_q_values, torch.zeros(next_q_values.shape[0], 1, len(self.policy_tokenizer)).to(self.accelerator.device)], dim=1)
-                # 1-step TD target
-                target_q_values = rewards + self.args.gamma * torch.sum(next_q_values * logits.softmax(dim=-1), dim=2)
+            target_values = returns_td_one #- regularizer
+            target_q_values = returns #- regularizer
 
-        cql_loss = torch.sum(logits.softmax(dim=-1) * q_values_logits.log_softmax(dim=-1), dim=2).mean()
+        if self.kl_ctl.value > 0:
+            cql_loss = torch.sum(logits.softmax(dim=-1) * q_values_logits.log_softmax(dim=-1), dim=2).mean()
 
         qf_losses = (q_preds - target_q_values) ** 2.0
+        if self.policy.q_head_type == 'dueling':
+            values = outputs["values"].squeeze(-1)
+            v_losses = (values - target_values) ** 2.0
+            losses = qf_losses + v_losses
+        else:
+            losses = qf_losses
+            v_losses = torch.zeros_like(qf_losses)
+
+        # Taking care of padding in case of batch size >1
         loss_mask = responses != self.policy_tokenizer.pad_token_id
         denom = loss_mask.sum(dim=1)
-        per_sample_loss = (qf_losses * loss_mask.detach()).sum(dim=1) / denom
-        loss = per_sample_loss.mean() - self.kl_ctl.value * cql_loss
+        per_sample_loss = (losses * loss_mask.detach()).sum(dim=1) / denom
+
+        loss = per_sample_loss.mean()
+        if self.kl_ctl.value > 0:
+            loss = loss + self.kl_ctl.value * cql_loss
 
         with torch.no_grad():
             entropy = -(q_values_logits.softmax(dim=-1) * q_values_logits.log_softmax(dim=-1)).sum(dim=-1).mean()
@@ -317,14 +339,14 @@ class FQETrainer(rl_trainer.RLTrainer):
             value_mean, value_var = q_preds.mean(), q_preds.var(unbiased=False)
 
         stats = dict(
-            loss=dict(total=loss),
+            loss=dict(total=losses.mean(), qf=qf_losses.mean(), vf=v_losses.mean()),
             returns=dict(mean=return_mean, var=return_var),
             val=dict(
-                error=((q_preds - returns) ** 2).mean(),
+                error=((q_preds - returns_td_one) ** 2).mean(),
                 mean=value_mean,
                 var=value_var,
                 entropy=entropy,
-                kl_div=kl_div,
+                #kl_div=kl_div,
             ),
         )
         return loss, common.flatten_dict(stats, sep="/", postprocess_fn=lambda x: x.detach())
@@ -366,9 +388,10 @@ class FQETrainer(rl_trainer.RLTrainer):
         logger.warning(f"Start evaluation at step: {step_idx}", main_process_only=True)
         logger.warning(f"Number of evaluation steps: {len(self.eval_dataloader)}", main_process_only=True)
 
-        aggregated_loss = []
+        aggregated_qvalue_loss = []
+        aggregated_value_loss = []
         for batch in tqdm.tqdm(self.eval_dataloader,  disable=not self.accelerator.is_main_process, desc="Evaluating"):
-            queries, query_attn_masks, values = common.prepare_inputs(
+            queries, query_attn_masks, target_values = common.prepare_inputs(
                 common.unpack_dict(
                     batch,
                     keys=("queries", "query_attn_masks", "values"),
@@ -381,28 +404,39 @@ class FQETrainer(rl_trainer.RLTrainer):
                 # remove all padding tokens
                 query_attn_masks = query_attn_masks[queries != self.policy_tokenizer.pad_token_id].view(1, -1)
                 queries = queries[queries != self.policy_tokenizer.pad_token_id].view(1, -1)
-
-            # Remove the last token from the queries
-            queries = queries[:, :-1]
-            query_attn_masks = query_attn_masks[:, :-1]
-            last_token = queries[:, -1:]
+            else:
+                raise NotImplementedError("Batch size > 1 not supported yet.")
 
             # Start evaluation.
             self.policy.eval()
             self._make_fsdp_happy()  # we can keep this b/c it automatically checks if fsdp or not
+            outputs = self.policy(queries, query_attn_masks, only_last=True)
 
             # Compute the Q-values for the responses
-            q_values = self.policy(queries, query_attn_masks, only_last=True)["qvalues"]
-            q_values = torch.gather(q_values, dim=1, index=last_token).squeeze(-1)
+            q_values = outputs["qvalues"]
+            last_token = queries[:, -1].unsqueeze(-1)
+            q_values = torch.gather(q_values.squeeze(1), dim=1, index=last_token).squeeze(-1)
 
             # Compute the loss
-            assert q_values.shape == values.shape, f"{q_values.shape} != {values.shape}"
-            batch_loss = (q_values - values) ** 2.0
-            aggregated_loss.append(batch_loss)
+            assert q_values.shape == target_values.shape, f"{q_values.shape} != {target_values.shape}"
+            q_values_loss = (q_values - target_values) ** 2.0
+            aggregated_qvalue_loss.append(q_values_loss)
 
-        aggregated_loss = torch.cat(aggregated_loss, dim=0)
-        loss = aggregated_loss.mean()
-        stats = {'eval/mse': loss}
+            # If the head predict also values, we can compute the value loss.
+            if self.policy.q_head_type == 'dueling':
+                values = outputs["values"].squeeze(-1).squeeze(-1)
+                assert values.shape == target_values.shape, f"{values.shape} != {target_values.shape}"
+                values_loss = (values - target_values) ** 2.0
+                aggregated_value_loss.append(values_loss)
+            else:
+                values_loss = torch.zeros_like(q_values_loss)
+                aggregated_value_loss.append(values_loss)
+
+        aggregated_value_loss = torch.cat(aggregated_value_loss, dim=0)
+        aggregated_qvalue_loss = torch.cat(aggregated_qvalue_loss, dim=0)
+        qvalue_loss = aggregated_qvalue_loss.mean()
+        value_loss = aggregated_value_loss.mean()
+        stats = {'eval/qvalue_mse': qvalue_loss, 'eval/value_mse': value_loss}
         if self.accelerator.is_main_process:
             self.accelerator.log(stats, step=step_idx)
 

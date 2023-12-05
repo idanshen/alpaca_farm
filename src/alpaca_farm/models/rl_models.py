@@ -184,14 +184,11 @@ class AutoregressiveValue(Value):
         inputs = self.base_model.prepare_inputs_for_generation(
             input_ids=sequences,
             attention_mask=sequence_attn_masks,
-            use_cache=use_cache,
-            past_key_values=past_key_values,
+            use_cache=False,
         )
         outputs = self.base_model.model(**inputs, output_hidden_states=True)
         # get the hidden state of the last layer
-        if use_cache and past_key_values is not None:
-            last_hidden_state = outputs.hidden_states[-1].squeeze(1)
-        elif only_last:
+        if only_last:
             last_hidden_state = outputs.hidden_states[-1][:, - 1:, :].squeeze(1)
         else:
             # value[t]: \hat{V}(sequences_{:t-1}); must align with `_estimate_advantage`.
@@ -200,11 +197,32 @@ class AutoregressiveValue(Value):
         with self.accelerator.autocast():
             values = self.value_head(last_hidden_state).squeeze(-1)
 
+        return dict(values=values)
+
+    def decode(self, input_ids: Tensor, use_cache: bool = False, past_key_values: Tensor = None) -> Dict[str, Tensor]:
+        sequences = input_ids
+        sequence_attn_masks = sequences.ne(self.base_tokenizer.pad_token_id)
+
+        inputs = self.base_model.prepare_inputs_for_generation(
+            input_ids=sequences,
+            attention_mask=sequence_attn_masks,
+            use_cache=use_cache,
+            past_key_values=past_key_values,
+        )
+        outputs = self.base_model.model(**inputs, output_hidden_states=True)
+        # get the hidden state of the last layer
+        if use_cache and past_key_values is not None:
+            last_hidden_state = outputs.hidden_states[-1].squeeze(1)
+        else:
+            last_hidden_state = outputs.hidden_states[-1][:, - 1:, :].squeeze(1)
+
+        with self.accelerator.autocast():
+            values = self.value_head(last_hidden_state).squeeze(-1)
+
         if use_cache:
             return dict(values=values, past_key_values=outputs.past_key_values)
         else:
             return dict(values=values)
-
 
 class ActorCritic(nn.Module):
     def __init__(self, policy: Policy, value_model: Value):
@@ -301,6 +319,49 @@ class AutoregressiveQfunction(Qfunction):
         inputs = self.base_model.prepare_inputs_for_generation(
             input_ids=sequences,
             attention_mask=sequence_attn_masks,
+            use_cache=False,
+        )
+        outputs = self.base_model.model(**inputs, output_hidden_states=True)
+
+        # get the hidden state of the last layer
+        if only_last:
+            last_hidden_state = outputs.hidden_states[-1][:, -2:, :]
+        else:
+            last_hidden_state = outputs.hidden_states[-1][:, queries.size(1) - 1 : ,:]
+
+        # project the hidden state to the q values
+        with self.accelerator.autocast():
+            if self.args.q_head_type == "linear":
+                last_hidden_state = last_hidden_state[:, :-1, :]
+                qvalues = self.q_head(last_hidden_state).squeeze(-1)
+                if self.args.num_q_heads > 1:
+                    qvalues = qvalues.view(-1, self.args.num_q_heads, len(self.base_tokenizer))
+            elif self.args.q_head_type == "projection":
+                last_hidden_state = last_hidden_state[:, :-1, :]
+                h_features = self.q_head(last_hidden_state)  # from B x L x H to B x L x H'
+                t_features = self.token_features  # T x H'
+                qvalues = h_features @ t_features.T  # B x L x T
+            elif self.args.q_head_type == "dueling":
+                # The Q head returns values for tokens queries.size(1) - 1 : -1 while the Value head returns values for tokens queries.size(1) : end
+                # The next_advantage is the advantage for the next state, i.e queries.size(1) : end
+                advantage = self.advantage_head(last_hidden_state)
+                value = self.value_head(last_hidden_state)
+                qvalues = value[:, :-1, :].detach() + advantage[:, :-1, :] #- advantage.mean(dim=-1, keepdim=True)
+                value = value[:, 1:, :]
+                next_advantage = advantage[:, 1:, :]
+                if self.args.num_q_heads > 1:
+                    qvalues = qvalues.view(-1, self.args.num_q_heads, len(self.base_tokenizer))
+
+            return dict(qvalues=qvalues, values=value, next_advantage=next_advantage)
+
+    @torch.inference_mode()
+    def decode(self, input_ids: Tensor, use_cache: bool = False, past_key_values: Tensor = None) -> Dict[str, Tensor]:
+        sequences = input_ids
+        sequence_attn_masks = sequences.ne(self.base_tokenizer.pad_token_id)
+
+        inputs = self.base_model.prepare_inputs_for_generation(
+            input_ids=sequences,
+            attention_mask=sequence_attn_masks,
             use_cache=use_cache,
             past_key_values=past_key_values,
         )
@@ -309,32 +370,27 @@ class AutoregressiveQfunction(Qfunction):
         # get the hidden state of the last layer
         if use_cache and past_key_values is not None:
             last_hidden_state = outputs.hidden_states[-1].squeeze(1)
-        elif only_last:
-            last_hidden_state = outputs.hidden_states[-1][:, - 1 :,:].squeeze(1)
         else:
-            last_hidden_state = outputs.hidden_states[-1][:, queries.size(1) - 1 : -1,:]
+            last_hidden_state = outputs.hidden_states[-1][:, -1:, :].squeeze(1)
 
         # project the hidden state to the q values
         with self.accelerator.autocast():
             if self.args.q_head_type == "linear":
-                qvalues = self.q_head(last_hidden_state).squeeze(-1)
-                if self.args.num_q_heads > 1:
-                    qvalues = qvalues.view(-1, self.args.num_q_heads, len(self.base_tokenizer))
+                raise NotImplementedError
             elif self.args.q_head_type == "projection":
-                h_features = self.q_head(last_hidden_state)  # from B x L x H to B x L x H'
-                t_features = self.token_features  # T x H'
-                qvalues = h_features @ t_features.T  # B x L x T
+                raise NotImplementedError
             elif self.args.q_head_type == "dueling":
+                # The Q head returns values for tokens queries.size(1) - 1 : -1 while the Value head returns values for tokens queries.size(1):
                 advantage = self.advantage_head(last_hidden_state)
                 value = self.value_head(last_hidden_state)
-                qvalues = value + advantage - advantage.mean(dim=-1, keepdim=True)
+                qvalues = value.detach() + advantage
                 if self.args.num_q_heads > 1:
                     qvalues = qvalues.view(-1, self.args.num_q_heads, len(self.base_tokenizer))
 
         if use_cache:
-            return dict(qvalues=qvalues, past_key_values=outputs.past_key_values)
+            return dict(qvalues=qvalues, past_key_values=outputs.past_key_values, values=value)
         else:
-            return dict(qvalues=qvalues)
+            return dict(qvalues=qvalues, values=value)
 
 
 def make_policy_with_base_model(

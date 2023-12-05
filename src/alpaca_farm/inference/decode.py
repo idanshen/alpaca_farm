@@ -69,9 +69,9 @@ class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
 
             if self.last_input_ids is not None and (input_ids[0, :-1].shape == self.last_input_ids.shape) and torch.all(input_ids[0, :-1] == self.last_input_ids):
                 # if the last input ids are the same as the current input ids, we can reuse the past key values
-                q_outputs = self.model(input_ids, past_key_values=self.past_key_values, use_cache=True)
+                q_outputs = self.model.decode(input_ids, past_key_values=self.past_key_values, use_cache=True)
             else:
-                q_outputs = self.model(input_ids, only_last=True, use_cache=True)
+                q_outputs = self.model.decode(input_ids, use_cache=True)
             self.past_key_values = q_outputs['past_key_values']
             self.last_input_ids = input_ids[0, :]
 
@@ -83,19 +83,19 @@ class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
                 curr_topk_ids = topk_ids[:, i:i + batch_size]
                 curr_input_ids = torch.cat([input_ids.repeat(curr_topk_ids.shape[1], 1), curr_topk_ids.T], dim=-1)
                 if batch_size > 1:
-                    q_outputs = self.model(curr_input_ids, past_key_values=tuple((t1.expand(curr_topk_ids.shape[1], -1, -1, -1), t2.expand(curr_topk_ids.shape[1], -1, -1, -1)) for t1, t2 in self.past_key_values), use_cache=True)
+                    q_outputs = self.model.decode(curr_input_ids, past_key_values=tuple((t1.expand(curr_topk_ids.shape[1], -1, -1, -1), t2.expand(curr_topk_ids.shape[1], -1, -1, -1)) for t1, t2 in self.past_key_values), use_cache=True)
                 else:
-                    q_outputs = self.model(curr_input_ids, past_key_values=self.past_key_values, use_cache=True)
-                q_scores[:, curr_topk_ids] = q_outputs['values'].unsqueeze(0)
+                    q_outputs = self.model.decode(curr_input_ids, past_key_values=self.past_key_values, use_cache=True)
+                q_scores[:, curr_topk_ids] = q_outputs['values'].to(scores.dtype)
 
             augmented_q_outputs = scores + self.beta * q_scores
 
         elif isinstance(self.model, AutoregressiveQfunction):
             if self.last_input_ids is not None and (input_ids[:, :-1].shape == self.last_input_ids.shape) and torch.all(input_ids[:, :-1] == self.last_input_ids):
                 # if the last input ids are the same as the current input ids, we can reuse the past key values
-                q_outputs = self.model(input_ids, past_key_values=self.past_key_values, use_cache=True)
+                q_outputs = self.model.decode(input_ids, past_key_values=self.past_key_values, use_cache=True)
             else:
-                q_outputs = self.model(input_ids, only_last=True, use_cache=True)
+                q_outputs = self.model.decode(input_ids, use_cache=True)
             self.past_key_values = q_outputs['past_key_values']
             self.last_input_ids = input_ids
 
