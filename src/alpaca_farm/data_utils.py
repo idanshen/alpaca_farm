@@ -64,6 +64,16 @@ def make_supervised_data_module(
             },
             remove_columns=["gem_id", "worker_lang", "model", "question1", "question2", "question3", "question4", "question5", "question6"]
         )
+    elif 'hh-rlhf' in data_args.dataset_path:
+        alpaca_instructions = datasets.load_dataset(data_args.dataset_path, data_args.dataset_name)
+        alpaca_instructions = alpaca_instructions.map(
+            lambda example: {
+                "instruction": example["chosen"][:example["chosen"].rfind('Assistant: ') + len('Assistant:')].replace('\n', ' ').strip(),
+                "input": None,
+                "output": example["chosen"][example["chosen"].rfind('Assistant:') + len('Assistant:'):].replace('\n', ' ').strip(),
+            },
+            remove_columns=["chosen", "rejected"]
+        )
     else:
         alpaca_instructions = datasets.load_dataset(data_args.dataset_path, data_args.dataset_name)
 
