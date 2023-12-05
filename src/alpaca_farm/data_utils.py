@@ -212,40 +212,6 @@ def make_rl_data_module(
     tokenizer, _ = tokenizer # only use policy tokenizer for data module (not reward tokenizer)
     prompt_dict = utils.jload(data_args.prompt_dict_path)
 
-    if data_args.dataset_path == 'imdb':
-        alpaca_instructions = datasets.load_dataset(data_args.dataset_path) # doesn't require separate path and name
-    elif 'seahorse' in data_args.dataset_path:
-        data_files = {"train": "train.json", "validation": "validation.json"}
-        alpaca_instructions = datasets.load_dataset(data_args.dataset_path, data_files=data_files)
-        # filtering happening at dataset preprocessing
-        # alpaca_instructions = alpaca_instructions.filter(lambda example: example['worker_lang'] == 'en-US')
-    else:
-        alpaca_instructions = datasets.load_dataset(data_args.dataset_path, data_args.dataset_name)
-
-    # TODO: may need to impose min and max lengths per task as they do in rewardsoup
-    if data_args.dataset_path == 'argilla/news-summary' :
-        split_map = {"train": "test", "validation": "train"} # swap train and validation b/c more train dataset is quite small and validation is bigger
-        train_split = split_map[data_args.train_splits[0]]
-        eval_split = split_map[data_args.eval_splits[0]]
-        train_df = alpaca_instructions[train_split]
-        eval_df = alpaca_instructions[eval_split]
-    elif data_args.dataset_path in {'lvwerra/stack-exchange-paired', 'Anthropic/hh-rlhf'}:
-        # TODO: may need to load from offline data on disk for speed for stack exchange
-        split_map = {"train": "train", "validation": "test"}
-        train_split = split_map[data_args.train_splits[0]]
-        eval_split = split_map[data_args.eval_splits[0]]
-        train_df = alpaca_instructions[train_split]
-        eval_df = alpaca_instructions[eval_split]
-    elif 'seahorse' in data_args.dataset_path:
-        split_map = {"train": "train", "validation": "validation"}
-        train_split = split_map[data_args.train_splits[0]]
-        eval_split = split_map[data_args.eval_splits[0]]
-        train_df = alpaca_instructions[train_split]
-        eval_df = alpaca_instructions[eval_split]
-    else:
-        train_df = pd.concat([pd.DataFrame(alpaca_instructions[split]) for split in data_args.train_splits])
-        eval_df = pd.concat([pd.DataFrame(alpaca_instructions[split]) for split in data_args.eval_splits])
-
     # for Quark training
     if getattr(training_args, "num_reward_tokens", 0) > 0 and not getattr(
         training_args, "train_on_best_quantile", True
@@ -254,17 +220,51 @@ def make_rl_data_module(
     else:
         prompt_postprocessor = None
 
-    # instantiate dataset class depending on the dataset
-    if data_args.dataset_path in {'argilla/news-summary', 'openai/summarize_from_feedback'} or 'seahorse' in data_args.dataset_path:
-        dataset_cls = SummaryQueryDataset
-    elif data_args.dataset_path == {'lvwerra/stack-exchange-paired', 'Anthropic/hh-rlhf'}:
-        dataset_cls = NoInputQueryDataset
-    elif data_args.dataset_path == 'imdb':
-        dataset_cls = ReviewQueryDataset
-    else: 
-        dataset_cls = QueryDataset
-
     if not training_args.static_dataset:
+        if data_args.dataset_path == 'imdb':
+            alpaca_instructions = datasets.load_dataset(data_args.dataset_path) # doesn't require separate path and name
+        elif 'seahorse' in data_args.dataset_path:
+            data_files = {"train": "train.json", "validation": "validation.json"}
+            alpaca_instructions = datasets.load_dataset(data_args.dataset_path, data_files=data_files)
+            # filtering happening at dataset preprocessing
+            # alpaca_instructions = alpaca_instructions.filter(lambda example: example['worker_lang'] == 'en-US')
+        else:
+            alpaca_instructions = datasets.load_dataset(data_args.dataset_path, data_args.dataset_name)
+
+        # TODO: may need to impose min and max lengths per task as they do in rewardsoup
+        if data_args.dataset_path == 'argilla/news-summary' :
+            split_map = {"train": "test", "validation": "train"} # swap train and validation b/c more train dataset is quite small and validation is bigger
+            train_split = split_map[data_args.train_splits[0]]
+            eval_split = split_map[data_args.eval_splits[0]]
+            train_df = alpaca_instructions[train_split]
+            eval_df = alpaca_instructions[eval_split]
+        elif data_args.dataset_path in {'lvwerra/stack-exchange-paired', 'Anthropic/hh-rlhf'}:
+            # TODO: may need to load from offline data on disk for speed for stack exchange
+            split_map = {"train": "train", "validation": "test"}
+            train_split = split_map[data_args.train_splits[0]]
+            eval_split = split_map[data_args.eval_splits[0]]
+            train_df = alpaca_instructions[train_split]
+            eval_df = alpaca_instructions[eval_split]
+        elif 'seahorse' in data_args.dataset_path:
+            split_map = {"train": "train", "validation": "validation"}
+            train_split = split_map[data_args.train_splits[0]]
+            eval_split = split_map[data_args.eval_splits[0]]
+            train_df = alpaca_instructions[train_split]
+            eval_df = alpaca_instructions[eval_split]
+        else:
+            train_df = pd.concat([pd.DataFrame(alpaca_instructions[split]) for split in data_args.train_splits])
+            eval_df = pd.concat([pd.DataFrame(alpaca_instructions[split]) for split in data_args.eval_splits])
+
+        # instantiate dataset class depending on the dataset
+        if data_args.dataset_path in {'argilla/news-summary', 'openai/summarize_from_feedback'} or 'seahorse' in data_args.dataset_path:
+            dataset_cls = SummaryQueryDataset
+        elif data_args.dataset_path == {'lvwerra/stack-exchange-paired', 'Anthropic/hh-rlhf'}:
+            dataset_cls = NoInputQueryDataset
+        elif data_args.dataset_path == 'imdb':
+            dataset_cls = ReviewQueryDataset
+        else: 
+            dataset_cls = QueryDataset
+
         train_dataset = dataset_cls(
             df=train_df,
             prompt_dict=prompt_dict,
