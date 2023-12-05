@@ -120,6 +120,7 @@ if __name__ == "__main__":
                                         flash_attn=args.flash_attn,
                                         accelerator=accelerator,
                                         beta=args.beta,
+                                        topk=args.topk,
                                         **decoding_kwargs)
             args.path_to_result = 'kl_{}_'.format(avg_kl) + args.path_to_result if avg_kl is not None else args.path_to_result 
             
@@ -139,6 +140,7 @@ if __name__ == "__main__":
                                         beta=args.beta,
                                         num_q_heads=args.num_q_heads,
                                         q_head_type=args.q_head_type,
+                                        topk=args.topk,
                                         **decoding_kwargs)
             args.path_to_result = 'kl_{}_'.format(avg_kl) + args.path_to_result if avg_kl is not None else args.path_to_result
 
