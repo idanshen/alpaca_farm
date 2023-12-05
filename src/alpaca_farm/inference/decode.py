@@ -561,6 +561,7 @@ def decode_prompts_with_huggingface(
         seed=seed,
         communication_num_chunks=communication_num_chunks,
         logits_processor=logits_processor,
+        internal_batch_return_sequences=4,
         **decoding_kwargs,
     )
     avg_kl = logits_processor.average_kl if logits_processor is not None else None
