@@ -27,6 +27,7 @@ import transformers
 from transformers import LogitsProcessorList
 from peft import PeftModel
 
+from ..models.reward_model import RewardConfig
 from .. import common, constants, distributed_utils, logging, torch_ops, utils
 from ..models.rl_models import make_qfunction_with_base_model, make_value_with_base_model, AutoregressiveQfunction, AutoregressiveValue
 
@@ -230,7 +231,10 @@ def load_model_and_tokenizer_for_inference(
             # model_kwargs.pop('accelerator')
         if 'flash_attn' in model_kwargs: # don't need flash_attn
             model_kwargs.pop('flash_attn')
-        model = model_cls.from_pretrained(model_name_or_path, **model_kwargs).eval()
+            RewardConfig
+        model = model_cls.from_pretrained(RewardConfig(model_name_or_path), **model_kwargs).eval()
+
+        # model = model_cls.from_pretrained(model_name_or_path, **model_kwargs).eval()
         accelerator.prepare(model)
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_name_or_path, **tokenizer_kwargs)
