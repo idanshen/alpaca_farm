@@ -29,6 +29,7 @@ from peft import PeftModel
 
 from .. import common, constants, distributed_utils, logging, torch_ops, utils
 from ..models.rl_models import make_qfunction_with_base_model, make_value_with_base_model, AutoregressiveQfunction, AutoregressiveValue
+from ..models.make_models import make_reward_model
 
 logger = logging.get_logger(__name__)
 
@@ -239,7 +240,18 @@ def load_model_and_tokenizer_for_inference(
             # model_kwargs.pop('accelerator')
         if 'flash_attn' in model_kwargs: # don't need flash_attn
             model_kwargs.pop('flash_attn')
-        model = model_cls.from_pretrained(RewardConfig(model_name_or_path), **model_kwargs).eval()
+        
+        class Args:
+            def __init__(self, transformer_cache_dir, flash_attn):
+                self.transformer_cache_dir = transformer_cache_dir
+                self.flash_attn = flash_attn
+        
+        args = Args(transformer_cache_dir=None, flash_attn=False)
+        
+        reward_model_config = RewardConfig(backbone_model_name_or_path=model_name_or_path)
+        model = make_reward_model(args, accelerator=accelerator, is_trainable=False).eval()
+
+        # model = model_cls.from_pretrained(RewardConfig(model_name_or_path), **model_kwargs).eval()
         common.cast_with_native_amp(model, mixed_precision='bf16')
         # model = model_cls.from_pretrained(model_name_or_path, **model_kwargs).eval()
         # accelerator.prepare(model)
