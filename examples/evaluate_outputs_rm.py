@@ -78,7 +78,7 @@ def evaluate_data(args, reward_model, eval_data_list_dict) -> List[Dict[str, Any
             for l in batch_list_dict:
                 l['output'] = l['output'].split('.')[0] + '.'
             batch_full_outputs = [prompt_fmt.format_map(l) for l in batch_list_dict]
-            print(batch_full_outputs)
+            # print(batch_full_outputs)
         encoded_full_responses = reward_tokenizer(batch_full_outputs, return_tensors="pt", padding=True, truncation=True)
         encoded_full_responses, = common.prepare_inputs((encoded_full_responses, ), device=0)
         reward_outputs = reward_model(**encoded_full_responses)
