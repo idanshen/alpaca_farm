@@ -282,7 +282,7 @@ def get_accelerate_sc_model(
         return model
 
     # wrap with accelerator for mixed precision
-    accelerator.prepare(model)
+    # accelerator.prepare(model)
 
     return model
 

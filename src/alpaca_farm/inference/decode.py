@@ -240,9 +240,9 @@ def load_model_and_tokenizer_for_inference(
         if 'flash_attn' in model_kwargs: # don't need flash_attn
             model_kwargs.pop('flash_attn')
         model = model_cls.from_pretrained(RewardConfig(model_name_or_path), **model_kwargs).eval()
-
+        common.cast_with_native_amp(model, mixed_precision='bf16')
         # model = model_cls.from_pretrained(model_name_or_path, **model_kwargs).eval()
-        accelerator.prepare(model)
+        # accelerator.prepare(model)
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_name_or_path, **tokenizer_kwargs)
     tokenizer.padding = "longest"
