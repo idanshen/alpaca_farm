@@ -72,7 +72,7 @@ def evaluate_data(args, reward_model, eval_data_list_dict) -> List[Dict[str, Any
         if 'prompt' in batch_list_dict[0]:
             batch_full_outputs = [l['prompt'] + ' ' + l['output'].split('.')[0] + '.' for l in batch_list_dict]
         else:
-            prompt_fmt = "Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.\n\n### Instruction:\n{instruction}\n\n### Input:\n{input}\n\n### Response: {}"
+            prompt_fmt = "Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.\n\n### Instruction:\n{instruction}\n\n### Input:\n{input}\n\n### Response: {output}"
             
             for l in batch_list_dict:
                 l['output'] = l['output'].split('.')[0] + '.'
