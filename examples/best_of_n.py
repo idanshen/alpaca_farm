@@ -307,7 +307,7 @@ def run_rerank(
         tf32=tf32,
         flash_attn=flash_attn,
         rerank_top_k=rerank_top_k,
-        accelerator=None,
+        accelerator=accelerator,
     )
 
     return_list_dict_data = [
