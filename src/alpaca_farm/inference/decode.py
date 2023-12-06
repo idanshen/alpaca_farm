@@ -27,11 +27,19 @@ import transformers
 from transformers import LogitsProcessorList
 from peft import PeftModel
 
-from ..models.reward_model import RewardConfig
 from .. import common, constants, distributed_utils, logging, torch_ops, utils
 from ..models.rl_models import make_qfunction_with_base_model, make_value_with_base_model, AutoregressiveQfunction, AutoregressiveValue
 
 logger = logging.get_logger(__name__)
+
+class RewardConfig(transformers.PretrainedConfig):
+    model_type = "reward_model"
+
+    # Huggingface doesn't allow non-kwargs for `__init__`.
+    def __init__(self, backbone_model_name_or_path=None, **kwargs):
+        super(RewardConfig, self).__init__(**kwargs)
+        self.backbone_model_name_or_path = backbone_model_name_or_path
+
 
 class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
     """
@@ -231,7 +239,6 @@ def load_model_and_tokenizer_for_inference(
             # model_kwargs.pop('accelerator')
         if 'flash_attn' in model_kwargs: # don't need flash_attn
             model_kwargs.pop('flash_attn')
-            RewardConfig
         model = model_cls.from_pretrained(RewardConfig(model_name_or_path), **model_kwargs).eval()
 
         # model = model_cls.from_pretrained(model_name_or_path, **model_kwargs).eval()
