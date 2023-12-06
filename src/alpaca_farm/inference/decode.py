@@ -242,13 +242,14 @@ def load_model_and_tokenizer_for_inference(
             model_kwargs.pop('flash_attn')
         
         class Args:
-            def __init__(self, transformer_cache_dir, flash_attn):
+            def __init__(self, model_name_or_path, transformer_cache_dir, flash_attn):
+                args.reward_model_name_or_path = model_name_or_path
                 self.transformer_cache_dir = transformer_cache_dir
                 self.flash_attn = flash_attn
         
-        args = Args(transformer_cache_dir=None, flash_attn=False)
+        args = Args(model_name_or_path=model_name_or_path, transformer_cache_dir=None, flash_attn=False)
         
-        reward_model_config = RewardConfig(backbone_model_name_or_path=model_name_or_path)
+        # reward_model_config = RewardConfig(backbone_model_name_or_path=model_name_or_path)
         model = make_reward_model(args, accelerator=accelerator, is_trainable=False).eval()
 
         # model = model_cls.from_pretrained(RewardConfig(model_name_or_path), **model_kwargs).eval()
