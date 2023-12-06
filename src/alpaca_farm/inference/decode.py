@@ -262,7 +262,7 @@ def load_model_and_tokenizer_for_inference(
     else:
         tokenizer_name_or_path = model_name_or_path
 
-    tokenizer = transformers.AutoTokenizer.from_pretrained(tokenizer_name_or_path, **tokenizer_kwargs)
+    tokenizer = transformers.AutoTokenizer.from_pretrained(tokenizer_name_or_path)
     print('tokenizer kwargs', tokenizer_kwargs)
     tokenizer.padding = "longest"
     if model_name_or_path == "huggyllama/llama-7b":
