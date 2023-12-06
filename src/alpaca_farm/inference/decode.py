@@ -257,7 +257,13 @@ def load_model_and_tokenizer_for_inference(
         # model = model_cls.from_pretrained(model_name_or_path, **model_kwargs).eval()
         # accelerator.prepare(model)
 
-    tokenizer = transformers.AutoTokenizer.from_pretrained(model_name_or_path, **tokenizer_kwargs)
+    if 'flant5' in model_name_or_path:
+        tokenizer_name_or_path = 'google/flan-t5-large'
+    else:
+        tokenizer_name_or_path = model_name_or_path
+
+    tokenizer = transformers.AutoTokenizer.from_pretrained(tokenizer_name_or_path, **tokenizer_kwargs)
+    print('tokenizer kwargs', tokenizer_kwargs)
     tokenizer.padding = "longest"
     if model_name_or_path == "huggyllama/llama-7b":
         tokenizer.pad_token_id = 0
