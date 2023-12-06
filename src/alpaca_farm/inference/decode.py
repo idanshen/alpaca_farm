@@ -243,7 +243,7 @@ def load_model_and_tokenizer_for_inference(
         
         class Args:
             def __init__(self, model_name_or_path, transformer_cache_dir, flash_attn):
-                args.reward_model_name_or_path = model_name_or_path
+                self.reward_model_name_or_path = model_name_or_path
                 self.transformer_cache_dir = transformer_cache_dir
                 self.flash_attn = flash_attn
         
