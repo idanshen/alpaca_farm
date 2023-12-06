@@ -382,10 +382,10 @@ def run_best_of_n(
         print('Saved intermediate decoding results in numpy!')
     
     mixed_precision = 'bf16' if 'flant5' in scorer_name_or_path else 'fp16' #manual override for flan-t5 bf16
-    accelerator = accelerate_patch.MyAccelerator(
-        mixed_precision=mixed_precision,
-        log_with=[],
-    )
+    # accelerator = accelerate_patch.MyAccelerator(
+    #     mixed_precision=mixed_precision,
+    #     log_with=[],
+    # )
     print('mixed precision for scorer is ', mixed_precision)
     rerank_return_list_dict_data = run_rerank(
         list_dict_data_or_path=decode_return_list_dict_data,
