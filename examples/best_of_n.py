@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import pathlib
 import sys
 from typing import Dict, Optional, Sequence, Union, Tuple
@@ -272,6 +273,7 @@ def run_rerank(
     mixed_precision=None,
     tf32=False,
     flash_attn=False,
+    accelerator=None,
 ):
     """Rerank sequences with reward model.
 
@@ -305,6 +307,7 @@ def run_rerank(
         tf32=tf32,
         flash_attn=flash_attn,
         rerank_top_k=rerank_top_k,
+        accelerator=None,
     )
 
     return_list_dict_data = [
@@ -349,30 +352,37 @@ def run_best_of_n(
         log_with=[],
     )
     
-    """Chain together decoding and rerank."""
-    decode_return_list_dict_data = run_decode(
-        decoder_name_or_path=decoder_name_or_path,
-        checkpoint_dir=decoder_checkpoint_dir,
-        prompt_dict_path=prompt_dict_path,
-        dataset_path=dataset_path,
-        dataset_name=dataset_name,
-        split=split,
-        max_instances=max_instances,
-        per_device_batch_size=per_device_batch_size,
-        temperature=temperature,
-        num_return_sequences=num_return_sequences,
-        max_new_tokens=max_new_tokens,
-        # mixed_precision=mixed_precision,
-        load_in_4_bits=load_in_4_bits,
-        tf32=tf32,
-        accelerator=accelerator,
-    )
+    # check if file exists
+    if os.path.isfile(f'decode_bestof{num_return_sequences}_results.npy'):
+        print('Loading intermediate decoding results from numpy!')
+        decode_return_list_dict_data = np.load(f'decode_bestof{num_return_sequences}_results.npy', allow_pickle=True)
     
-    # save intermediate decoding results in numpy
-    np.save(f'decode_bestof{num_return_sequences}_results.npy', decode_return_list_dict_data)
-    print('Saved intermediate decoding results in numpy!')
+    else:
+        """Chain together decoding and rerank."""
+        decode_return_list_dict_data = run_decode(
+            decoder_name_or_path=decoder_name_or_path,
+            checkpoint_dir=decoder_checkpoint_dir,
+            prompt_dict_path=prompt_dict_path,
+            dataset_path=dataset_path,
+            dataset_name=dataset_name,
+            split=split,
+            max_instances=max_instances,
+            per_device_batch_size=per_device_batch_size,
+            temperature=temperature,
+            num_return_sequences=num_return_sequences,
+            max_new_tokens=max_new_tokens,
+            # mixed_precision=mixed_precision,
+            load_in_4_bits=load_in_4_bits,
+            tf32=tf32,
+            accelerator=accelerator,
+        )
+
+        # save intermediate decoding results in numpy
+        np.save(f'decode_bestof{num_return_sequences}_results.npy', decode_return_list_dict_data)
+        print('Saved intermediate decoding results in numpy!')
     
     mixed_precision = 'bf16' if 'flant5' in scorer_name_or_path else 'fp16' #manual override for flan-t5 bf16
+    print('mixed precision for scorer is ', mixed_precision)
     rerank_return_list_dict_data = run_rerank(
         list_dict_data_or_path=decode_return_list_dict_data,
         scorer_name_or_path=scorer_name_or_path,
@@ -380,6 +390,7 @@ def run_best_of_n(
         mixed_precision=mixed_precision,
         tf32=tf32,
         flash_attn=flash_attn,
+        accelerator=accelerator,
     )
 
     # Convert best-k-of-n into best-of-n.

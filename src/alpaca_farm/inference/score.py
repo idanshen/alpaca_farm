@@ -98,6 +98,7 @@ def score_sequences_with_huggingface(
     mixed_precision: Optional[str] = None,
     tf32=False,
     flash_attn=False,
+    accelerator=None,
 ) -> List[float]:
     """Score samples with a reward model.
 
@@ -121,6 +122,7 @@ def score_sequences_with_huggingface(
         model_kwargs=dict(
             torch_dtype=utils.convert_str_dtype_to_torch_dtype(mixed_precision),
             flash_attn=flash_attn,
+            accelerator=accelerator,
         ),
     )
     return score_sequences_with_huggingface_given_model(
@@ -145,6 +147,7 @@ def rerank_sequences_with_huggingface(
     max_instances=sys.maxsize,
     tf32=False,
     flash_attn=False,
+    accelerator=None,
 ) -> Tuple[List[List[str]], List[List[int]]]:
     """Rerank samples with a reward model.
 
@@ -174,6 +177,7 @@ def rerank_sequences_with_huggingface(
         mixed_precision=mixed_precision,
         tf32=tf32,
         flash_attn=flash_attn,
+        accelerator=accelerator,
     )
     rewards = einops.rearrange(torch.tensor(rewards), "(b m) -> b m", m=len(sequences[0]))
     # Nested list of "size" (data_size, num_options).
