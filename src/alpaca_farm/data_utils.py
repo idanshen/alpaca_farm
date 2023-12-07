@@ -238,7 +238,7 @@ def make_rl_data_module(
             eval_split = split_map[data_args.eval_splits[0]]
             train_df = alpaca_instructions[train_split]
             eval_df = alpaca_instructions[eval_split]
-        elif data_args.dataset_path in {'lvwerra/stack-exchange-paired', 'Anthropic/hh-rlhf'}:
+        elif data_args.dataset_path in {'lvwerra/stack-exchange-paired'}:
             # TODO: may need to load from offline data on disk for speed for stack exchange
             split_map = {"train": "train", "validation": "test"}
             train_split = split_map[data_args.train_splits[0]]
@@ -251,6 +251,12 @@ def make_rl_data_module(
             eval_split = split_map[data_args.eval_splits[0]]
             train_df = alpaca_instructions[train_split]
             eval_df = alpaca_instructions[eval_split]
+        elif 'hh-rlhf' in data_args.dataset_path:
+            split_map = {"train": "train", "validation": "test"}
+            train_split = split_map[data_args.train_splits[0]]
+            eval_split = split_map[data_args.eval_splits[0]]
+            train_df = alpaca_instructions[train_split]
+            eval_df = alpaca_instructions[eval_split]
         else:
             train_df = pd.concat([pd.DataFrame(alpaca_instructions[split]) for split in data_args.train_splits])
             eval_df = pd.concat([pd.DataFrame(alpaca_instructions[split]) for split in data_args.eval_splits])
@@ -258,7 +264,7 @@ def make_rl_data_module(
         # instantiate dataset class depending on the dataset
         if data_args.dataset_path in {'argilla/news-summary', 'openai/summarize_from_feedback'} or 'seahorse' in data_args.dataset_path:
             dataset_cls = SummaryQueryDataset
-        elif data_args.dataset_path == {'lvwerra/stack-exchange-paired', 'Anthropic/hh-rlhf'}:
+        elif data_args.dataset_path == {'lvwerra/stack-exchange-paired'}:
             dataset_cls = NoInputQueryDataset
         elif data_args.dataset_path == 'imdb':
             dataset_cls = ReviewQueryDataset

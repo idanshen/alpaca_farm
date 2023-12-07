@@ -255,6 +255,8 @@ def get_accelerate_sc_model(
         device_map = 'auto'
         if 't5' in model_name_or_path and torch.cuda.device_count() > 1:
             device_map = 'cuda:1'
+        if 'deberta' in model_name_or_path:
+            device_map = 'cuda:0'
         model = AutoModelForSequenceClassification.from_pretrained(
             model_name_or_path,
             device_map=device_map,
@@ -263,7 +265,7 @@ def get_accelerate_sc_model(
             cache_dir=transformer_cache_dir,
         )
 
-    if flash_attn:
+    if flash_attn and 'deberta' not in model_name_or_path:
         print("Using Flash Attention. Notice that this feature requires per device batch size 1.")
         model = BetterTransformer.transform(model)
 

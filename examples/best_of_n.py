@@ -74,7 +74,7 @@ def run_decode(
     """
     dataset = datasets.load_dataset(dataset_path, dataset_name)
 
-    if dataset_path == 'argilla/news-summary' :
+    if dataset_path == 'argilla/news-summary':
         split_map = {"train": "test", "validation": "train", "eval": "train"} # swap train and validation b/c more train dataset is quite small and validation is bigger'
         prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_dataset(
             dataset_path=dataset_path,
@@ -85,6 +85,13 @@ def run_decode(
         prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_dataset(
             dataset_path=dataset_path,
             dataset=dataset[split],
+            prompt_dict=utils.jload(prompt_dict_path),
+        )
+    elif dataset_path == 'Anthropic/hh-rlhf':
+        split_map = {"train": "train", "validation": "test", "eval": "test"}
+        prompts, list_dict_data, metadata = data_preprocessor.format_prompt_with_dataset(
+            dataset_path=dataset_path,
+            dataset=dataset[split_map[split]],
             prompt_dict=utils.jload(prompt_dict_path),
         )
     elif 'seahorse' in dataset_path:

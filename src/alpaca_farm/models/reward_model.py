@@ -112,6 +112,8 @@ class RewardNoLoraModel(transformers.PreTrainedModel):
             self.backbone_model = self.model.model
         elif hasattr(self.model, 'encoder'):
             self.backbone_model = self.model.encoder
+        elif hasattr(self.model, 'deberta'):
+            self.backbone_model = self.model.deberta
         else:
             raise Exception('Backbone model not found')
         
