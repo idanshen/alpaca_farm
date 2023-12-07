@@ -192,7 +192,7 @@ class AutoregressiveValue(Value):
             last_hidden_state = outputs.hidden_states[-1][:, - 1:, :].squeeze(1)
         else:
             # value[t]: \hat{V}(sequences_{:t-1}); must align with `_estimate_advantage`.
-            last_hidden_state = outputs.hidden_states[-1][:, queries.size(1) - 1: -1, :]
+            last_hidden_state = outputs.hidden_states[-1][:, queries.size(1) : , :]
 
         with self.accelerator.autocast():
             values = self.value_head(last_hidden_state).squeeze(-1)

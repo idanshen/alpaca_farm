@@ -144,7 +144,6 @@ class FVETrainer(rl_trainer.RLTrainer):
         # Give up dropout throughout.
         # self._make_fsdp_happy()
 
-        self.ref_policy.eval()
         self.reward_model.eval()
         self.policy.train()
 
