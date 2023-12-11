@@ -20,7 +20,7 @@ from typing import List, Literal
 
 import transformers
 
-from alpaca_farm import common, constants, data_utils, logging, utils
+from alpaca_farm import common, constants, data_utils, logging, utils, accelerate_patch
 from alpaca_farm.models import reward_model
 from alpaca_farm.reward_modeling_trainer import Trainer, compute_reward_modeling_metrics
 
@@ -129,6 +129,15 @@ def main():
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     os.environ["WANDB_PROJECT"] = training_args.wandb_project
 
+    accelerator = accelerate_patch.MyAccelerator(
+        gradient_accumulation_steps=training_args.gradient_accumulation_steps,
+        mixed_precision='bf16' if training_args.bfloat16 else 'fp16',
+        log_with=["wandb"],
+        even_batches=True,  # Make sure the batch size on each device is the same.
+        split_batches=False,  # Don't break a batch into smaller chunks.
+        step_scheduler_with_optimizer=False,  # Untie optimizer and scheduler step.
+    )
+
     if training_args.deepspeed is not None:
         ctx_mgr = contextlib.nullcontext()
     elif training_args.initialize_model_on_cpu:
@@ -151,6 +160,7 @@ def main():
             lora_dropout=training_args.lora_dropout,
             gradient_checkpointing=training_args.gradient_checkpointing,
             flash_attn=training_args.flash_attn,
+            accelerator=accelerator,
             config=config,)
     common.let_model_save_mem_when_zero_grad(model)
 

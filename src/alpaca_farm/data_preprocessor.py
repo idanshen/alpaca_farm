@@ -34,6 +34,7 @@ INSTRUCTIONS = {
     'openai/summarize_from_feedback': "Generate a one-sentence summary of this post.",
     './seahorse_data/': "Generate a one-sentence summary of this post.",
     'seahorse_data': "Generate a one-sentence summary of this post.",
+    'Anthropic/hh-rlhf': "Generate a one-sentence summary of this post.",
     '/data/pulkitag/models/idanshen/alpaca_farm/seahorse_data/': "Generate a one-sentence summary of this post.",
 }
 
@@ -98,7 +99,6 @@ def format_prompt_with_dataset(
     we add a few filtering, preprocessing steps for specific datasets
     '''
     df = dataset # renaming for convenience
-    instruction = INSTRUCTIONS[dataset_path]
 
     filter_fn = None
     id_map_fn = None
@@ -107,18 +107,25 @@ def format_prompt_with_dataset(
     skip_deduplicate = False # in case we want to keep duplicates
 
     if dataset_path == 'argilla/news-summary':
+        instruction = INSTRUCTIONS[dataset_path]
         filter_fn = lambda x: x["text"] is not None and x["id"] is not None
         id_map_fn = lambda x: {"id": x["id"]}
         input_preprocess_fn = lambda x: "-".join(x["text"].replace("\n", " ").split("(Reuters) -")[1:]).strip()
         # overriding max query length
     elif dataset_path == 'openai/summarize_from_feedback':
+        instruction = INSTRUCTIONS[dataset_path]
         filter_fn = lambda x: x["info"]["post"] is not None and x['info']["id"] is not None
         id_map_fn = lambda x: {"id": x["info"]["id"]}
         input_preprocess_fn = lambda x: x["info"]["post"].replace("\n", " ")
     elif 'seahorse' in dataset_path:
+        instruction = INSTRUCTIONS[dataset_path]
         filter_fn = lambda x: x['worker_lang'] == 'en-US'
         id_map_fn = lambda x: {'id': x['gem_id']}
         input_preprocess_fn = lambda x: x['text']
+    elif 'hh-rlhf' in dataset_path:
+        filter_fn = lambda x: x["chosen"] is not None
+        input_preprocess_fn = lambda x: None
+        instruction = lambda x: x["chosen"][:x["chosen"].rfind('Assistant: ') + len('Assistant:')].replace('\n', ' ').strip()
     else:
         raise NotImplementedError(f'Filter, id map, and input preprocess functions for dataset {dataset_path} not implemented.')
     
@@ -140,7 +147,10 @@ def format_prompt_with_dataset(
         filtered_dataset = duplicated_dataset.select(unique_indices.tolist())
         return filtered_dataset
 
-    df_deduplicated = remove_duplicate(df_filtered)
+    if id_map_fn is not None:
+        df_deduplicated = remove_duplicate(df_filtered)
+    else:
+        df_deduplicated = df_filtered
 
     logger.warning(
         f"Deduplicated {len(df_filtered) - len(df_deduplicated)} instances out of {len(df_filtered)} that "
@@ -150,8 +160,12 @@ def format_prompt_with_dataset(
     df_deduplicated = pd.DataFrame(df_deduplicated)
 
     # format instruction and input into prompts
-    prompts = [format_prompt(example={'instruction': instruction, 'input': input_preprocess_fn(row)}, prompt_dict=prompt_dict) for _, row in df_deduplicated.iterrows()]
-    list_dict_data = [{'instruction': instruction, 'input': input_preprocess_fn(row)} for _, row in df_deduplicated.iterrows()]
+    if callable(instruction):
+        prompts = [format_prompt(example={'instruction': instruction(row), 'input': input_preprocess_fn(row)}, prompt_dict=prompt_dict) for _, row in df_deduplicated.iterrows()]
+        list_dict_data = [{'instruction': instruction(row), 'input': input_preprocess_fn(row)} for _, row in df_deduplicated.iterrows()]
+    else:
+        prompts = [format_prompt(example={'instruction': instruction, 'input': input_preprocess_fn(row)}, prompt_dict=prompt_dict) for _, row in df_deduplicated.iterrows()]
+        list_dict_data = [{'instruction': instruction, 'input': input_preprocess_fn(row)} for _, row in df_deduplicated.iterrows()]
     metadata = {"prompt_dict": prompt_dict}
 
     return prompts, list_dict_data, metadata
@@ -1280,6 +1294,20 @@ class QueryDataset(Dataset):
         split: Optional[str] = None,
     ):
         super(QueryDataset, self).__init__()
+
+        if 'hh-rlhf' in dataset_name:
+            df = df.map(
+                lambda example: {
+                    "instruction": example["chosen"][
+                                   :example["chosen"].rfind('Assistant: ') + len('Assistant:')].replace('\n',
+                                                                                                        ' ').strip(),
+                    "input": None,
+                    "output": example["chosen"][example["chosen"].rfind('Assistant:') + len('Assistant:'):].replace(
+                        '\n', ' ').strip(),
+                },
+                remove_columns=["chosen", "rejected"]
+            )
+            df = pd.DataFrame(df)
 
         if df_postprocessor is not None:
             df = df_postprocessor(df)
