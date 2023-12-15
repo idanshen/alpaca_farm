@@ -3,6 +3,11 @@ import transformers
 from .. import constants
 from ..types import AnyPath, AnyPathOrNone
 
+MODELS_MAX_LENGTH = {
+    'huggyllama/llama-7b': 2048,
+    'meta-llama/Llama-2-7b-hf': 4096,
+    'gpt2': 1024,
+}
 
 def _make_padded_tokenizer(
     model_name_or_path: AnyPath,
@@ -16,7 +21,7 @@ def _make_padded_tokenizer(
         model_name_or_path = 'google/flan-t5-large'
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_name_or_path,
-        model_max_length=1024,
+        # model_max_length=MODELS_MAX_LENGTH[model_name_or_path],
         cache_dir=cache_dir,
         **kwargs,
     )
@@ -29,8 +34,8 @@ def _make_padded_tokenizer(
     else:
         tokenizer.padding = "longest"
         
-    if model_name_or_path == "huggyllama/llama-7b":
-        tokenizer.pad_token_id = 0
+    if 'llama' in model_name_or_path:
+        tokenizer.pad_token_id = tokenizer.unk_token_id
     else:
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token_id = tokenizer.eos_token_id

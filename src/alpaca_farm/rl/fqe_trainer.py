@@ -315,7 +315,7 @@ class FQETrainer(rl_trainer.RLTrainer):
             cql_loss = torch.sum(logits.softmax(dim=-1) * q_values_logits.log_softmax(dim=-1), dim=2).mean()
 
         qf_losses = (q_preds - target_q_values) ** 2.0
-        if self.policy.q_head_type == 'dueling':
+        if self.policy.args.q_head_type == 'dueling':
             values = outputs["values"].squeeze(-1)
             v_losses = (values - target_values) ** 2.0
             losses = qf_losses + v_losses
@@ -423,7 +423,7 @@ class FQETrainer(rl_trainer.RLTrainer):
             aggregated_qvalue_loss.append(q_values_loss)
 
             # If the head predict also values, we can compute the value loss.
-            if self.policy.q_head_type == 'dueling':
+            if self.policy.args.q_head_type == 'dueling':
                 values = outputs["values"].squeeze(-1).squeeze(-1)
                 assert values.shape == target_values.shape, f"{values.shape} != {target_values.shape}"
                 values_loss = (values - target_values) ** 2.0
