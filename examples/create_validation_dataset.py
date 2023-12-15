@@ -77,7 +77,7 @@ def generate_data(args, policy, policy_tokenizer, reward_model, reward_tokenizer
             query_attn_masks = query_attn_masks[queries != policy_tokenizer.pad_token_id].view(1, -1)
             queries = queries[queries != policy_tokenizer.pad_token_id].view(1, -1)
 
-        n = np.random.randint(1, 100)
+        n = np.random.randint(1, 50)
         short_response = policy.generate(
             inputs=queries,
             attention_mask=query_attn_masks,
