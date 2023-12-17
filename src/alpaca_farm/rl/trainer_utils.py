@@ -4,7 +4,7 @@ from .. import constants
 from ..types import AnyPath, AnyPathOrNone
 
 MODELS_MAX_LENGTH = {
-    'huggyllama/llama-7b': 2048,
+    # 'huggyllama/llama-7b': 2048,
     'meta-llama/Llama-2-7b-hf': 4096,
     'gpt2': 1024,
 }
@@ -21,7 +21,7 @@ def _make_padded_tokenizer(
         model_name_or_path = 'google/flan-t5-large'
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_name_or_path,
-        # model_max_length=MODELS_MAX_LENGTH[model_name_or_path],
+        model_max_length=MODELS_MAX_LENGTH.get(model_name_or_path, 1024),
         cache_dir=cache_dir,
         **kwargs,
     )
