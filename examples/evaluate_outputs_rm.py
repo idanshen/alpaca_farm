@@ -26,7 +26,7 @@ class Arguments:
     path_to_result: str = field(
         default="results.json", metadata={"help": "The path to the output json file."})
     per_device_batch_size: int = field(
-        default=12, metadata={"help": "The path to the output json file."})
+        default=1, metadata={"help": "The path to the output json file."})
     flash_attn: bool = field(default=False, metadata={"help": "If True, uses Flash Attention."})
     bf16: bool = field(
         default=False, metadata={"help": "If True, uses bfloat16. If lora and four_bits are True, bfloat16 is used for the lora weights."})
@@ -73,7 +73,8 @@ def evaluate_data(args, reward_model, eval_data_list_dict) -> List[Dict[str, Any
         encoded_full_responses = reward_tokenizer(batch_full_outputs, return_tensors="pt", padding=True, truncation=True)
         encoded_full_responses, = common.prepare_inputs((encoded_full_responses, ), device=0)
         reward_outputs = reward_model(**encoded_full_responses)
-        rewards = reward_outputs['rewards'].squeeze().cpu().detach().softmax(dim=-1).numpy()[0].tolist()
+        rewards = reward_outputs['rewards'].squeeze().cpu().detach().item()
+        # rewards = reward_outputs['rewards'].squeeze().cpu().detach().softmax(dim=-1).numpy()[0].tolist()
         rewards_list.extend(rewards if isinstance(rewards, list) else [rewards])
         # join data
         pbar.update(len(batch_list_dict))
