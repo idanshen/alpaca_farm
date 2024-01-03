@@ -4,7 +4,7 @@ from .. import constants
 from ..types import AnyPath, AnyPathOrNone
 
 MODELS_MAX_LENGTH = {
-    # 'huggyllama/llama-7b': 2048,
+    'huggyllama/llama-7b': 1024,
     'meta-llama/Llama-2-7b-hf': 4096,
     'gpt2': 1024,
 }

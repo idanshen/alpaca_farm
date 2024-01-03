@@ -88,6 +88,7 @@ class QLogitsProcessor(transformers.LogitsProcessor, torch.nn.Module):
                     q_outputs = self.model.decode(curr_input_ids, past_key_values=self.past_key_values, use_cache=True)
                 q_scores[:, curr_topk_ids] = q_outputs['values'].to(scores.dtype)
 
+            q_scores[q_scores!=0.0] = q_scores[q_scores!=0.0] - q_scores[q_scores!=0.0].mean()
             augmented_q_outputs = scores + self.beta * q_scores
 
         elif isinstance(self.model, AutoregressiveQfunction):

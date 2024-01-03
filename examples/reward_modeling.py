@@ -100,7 +100,7 @@ class TrainingArguments(transformers.TrainingArguments):
     )
     resume_from_checkpoint: bool = field(default=False, metadata={"help": "If True, loads from last check point."})
     use_fast_tokenizer: bool = field(
-        default=False,
+        default=True,
         metadata={
             "help": "Use fast tokenizer if True. "
             "Fast LLaMA tokenizer forces protobuf downgrade to 3.20.3. "
@@ -193,7 +193,7 @@ def main():
 
     trainer.evaluate()
 
-    trainer.save_state()
+    # trainer.save_state()
     common.safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir, model=model)
     logger.warning("hooray again! model saving worked.", main_process_only=True)
 
