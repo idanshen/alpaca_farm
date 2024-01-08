@@ -36,6 +36,7 @@ INSTRUCTIONS = {
     'seahorse_data': "Generate a one-sentence summary of this post.",
     'Anthropic/hh-rlhf': "Generate a one-sentence summary of this post.",
     '/data/pulkitag/models/idanshen/alpaca_farm/seahorse_data/': "Generate a one-sentence summary of this post.",
+    '/data/pulkitag/misc/idanshen/shared/data/personalization/': "Please write a one paragraph explanation about the following topic.",
 }
 
 
@@ -1306,6 +1307,15 @@ class QueryDataset(Dataset):
                         '\n', ' ').strip(),
                 },
                 remove_columns=["chosen", "rejected"]
+            )
+            df = pd.DataFrame(df)
+        elif 'personalization' in dataset_name:
+            df = df.map(
+                lambda example: {
+                    "instruction": INSTRUCTIONS[dataset_name],
+                    "input": example["term"],
+                },
+                remove_columns=["topic", "term"]
             )
             df = pd.DataFrame(df)
 

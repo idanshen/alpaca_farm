@@ -257,6 +257,12 @@ def make_rl_data_module(
             eval_split = split_map[data_args.eval_splits[0]]
             train_df = alpaca_instructions[train_split]
             eval_df = alpaca_instructions[eval_split]
+        elif 'personalization' in data_args.dataset_path:
+            split_map = {"train": "train", "validation": "validation"}
+            train_split = split_map[data_args.train_splits[0]]
+            eval_split = split_map[data_args.eval_splits[0]]
+            train_df = alpaca_instructions[train_split]
+            eval_df = alpaca_instructions[eval_split]
         else:
             train_df = pd.concat([pd.DataFrame(alpaca_instructions[split]) for split in data_args.train_splits])
             eval_df = pd.concat([pd.DataFrame(alpaca_instructions[split]) for split in data_args.eval_splits])
