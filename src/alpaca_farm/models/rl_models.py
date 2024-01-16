@@ -290,6 +290,16 @@ class Qfunction(nn.Module, abc.ABC):
             self.value_head.bias.data.zero_()
             self.value_head = self.value_head.to(self.head_device)
             self.q_head = torch.nn.ModuleList([self.advantage_head, self.value_head])
+        elif args.q_head_type == 'q_and_v':
+            self.value_head = torch.nn.Linear(self.feature_size, 1)
+            self.value_head.weight.data.zero_()
+            self.value_head.bias.data.zero_()
+            self.value_head = self.value_head.to(self.head_device)
+            self.out_q_head = torch.nn.Linear(self.feature_size, len(base_tokenizer)*self.args.num_q_heads)
+            self.out_q_head.weight.data.zero_()
+            self.out_q_head.bias.data.zero_()
+            self.out_q_head = self.out_q_head.to(self.head_device)
+            self.q_head = torch.nn.ModuleList([self.value_head, self.out_q_head])
         else:
             raise NotImplementedError
 
@@ -336,11 +346,13 @@ class AutoregressiveQfunction(Qfunction):
                 qvalues = self.q_head(last_hidden_state).squeeze(-1)
                 if self.args.num_q_heads > 1:
                     qvalues = qvalues.view(-1, self.args.num_q_heads, len(self.base_tokenizer))
+                return dict(qvalues=qvalues)
             elif self.args.q_head_type == "projection":
                 last_hidden_state = last_hidden_state[:, :-1, :]
                 h_features = self.q_head(last_hidden_state)  # from B x L x H to B x L x H'
                 t_features = self.token_features  # T x H'
                 qvalues = h_features @ t_features.T  # B x L x T
+                return dict(qvalues=qvalues)
             elif self.args.q_head_type == "dueling":
                 # The Q head returns values for tokens queries.size(1) - 1 : -1 while the Value head returns values for tokens queries.size(1) : end
                 # The next_advantage is the advantage for the next state, i.e queries.size(1) : end
@@ -351,8 +363,16 @@ class AutoregressiveQfunction(Qfunction):
                 next_advantage = advantage[:, 1:, :]
                 if self.args.num_q_heads > 1:
                     qvalues = qvalues.view(-1, self.args.num_q_heads, len(self.base_tokenizer))
-
-            return dict(qvalues=qvalues, values=value, next_advantage=next_advantage)
+                return dict(qvalues=qvalues, values=value, next_advantage=next_advantage)
+            elif self.args.q_head_type == "q_and_v":
+                # The Q head returns values for tokens queries.size(1) - 1 : -1 while the Value head returns values for tokens queries.size(1) : end
+                value = self.value_head(last_hidden_state)
+                qvalues = self.out_q_head(last_hidden_state)
+                qvalues = qvalues[:, :-1, :]
+                value = value[:, 1:, :]
+                if self.args.num_q_heads > 1:
+                    qvalues = qvalues.view(-1, self.args.num_q_heads, len(self.base_tokenizer))
+                return dict(qvalues=qvalues, values=value)
 
     @torch.inference_mode()
     def decode(self, input_ids: Tensor, use_cache: bool = False, past_key_values: Tensor = None) -> Dict[str, Tensor]:
@@ -384,6 +404,11 @@ class AutoregressiveQfunction(Qfunction):
                 advantage = self.advantage_head(last_hidden_state)
                 value = self.value_head(last_hidden_state)
                 qvalues = value.detach() + advantage
+                if self.args.num_q_heads > 1:
+                    qvalues = qvalues.view(-1, self.args.num_q_heads, len(self.base_tokenizer))
+            elif self.args.q_head_type == "q_and_v":
+                qvalues = self.out_q_head(last_hidden_state)
+                value = None
                 if self.args.num_q_heads > 1:
                     qvalues = qvalues.view(-1, self.args.num_q_heads, len(self.base_tokenizer))
 

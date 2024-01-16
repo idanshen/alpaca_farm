@@ -41,6 +41,9 @@ from .trainer_utils import _make_padded_tokenizer
 logger = logging.get_logger(__name__)
 
 
+def asymmetric_l2_loss(u, tau):
+    return torch.mean(torch.abs(tau - (u < 0).float()) * u**2)
+
 class FQETrainer(rl_trainer.RLTrainer):
     def __init__(
         self,
@@ -76,6 +79,8 @@ class FQETrainer(rl_trainer.RLTrainer):
             shuffle=True,
             drop_last=True,)
         self.eval_dataloader = self.accelerator.prepare(eval_dataloader)  # noqa
+        if self.args.q_head_type == 'q_and_v':
+            assert self.args.lam == 0.0
 
     def _shape_reward(
         self, rewards: Tensor, responses: Tensor,
@@ -308,8 +313,12 @@ class FQETrainer(rl_trainer.RLTrainer):
             #             q_values_logits.log_softmax(dim=-1) - logits.log_softmax(dim=-1))).sum(dim=-1).mean()
 
             # Compute the Q-values for the next states
-            target_values = returns_td_one #- regularizer
-            target_q_values = returns #- regularizer
+            if self.args.q_head_type == 'q_and_v':
+                target_values = q_preds.detach()
+                target_q_values = returns  # lam=0.0 so this is TD(0) with value function as bootstrap
+            else:
+                target_values = returns_td_one
+                target_q_values = returns
 
         if self.kl_ctl.value > 0:
             cql_loss = torch.sum(logits.softmax(dim=-1) * q_values_logits.log_softmax(dim=-1), dim=2).mean()
@@ -318,6 +327,11 @@ class FQETrainer(rl_trainer.RLTrainer):
         if self.policy.args.q_head_type == 'dueling':
             values = outputs["values"].squeeze(-1)
             v_losses = (values - target_values) ** 2.0
+            losses = qf_losses + v_losses
+        elif self.policy.args.q_head_type == 'q_and_v':
+            values = outputs["values"].squeeze(-1)
+            tau = 0.8
+            v_losses = asymmetric_l2_loss(target_values-values, tau)
             losses = qf_losses + v_losses
         else:
             losses = qf_losses
